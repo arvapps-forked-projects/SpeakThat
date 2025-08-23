@@ -3,9 +3,11 @@
 **SpeakThat!** is an Android app that reads your notifications aloud, helping you stay connected without constantly checking your phone. Whether you're driving, busy, visually impaired, or just want to reduce screen time, SpeakThat! makes your notifications accessible, hands-free, and private.
 
 [![IzzyOnDroid](https://img.shields.io/badge/IzzyOnDroid-Available-green?logo=android)](https://apt.izzysoft.de/fdroid/index/apk/com.micoyc.speakthat)
+[<img src="https://img.shields.io/badge/SpeakThat!-Google_Play-blue?logo=googleplay" alt="RB shield">](https://play.google.com/store/apps/details?id=com.micoyc.speakthat)
 [![License](https://img.shields.io/badge/License-GPL--3.0-green.svg)](LICENSE)
 [<img src="https://shields.rbtlog.dev/simple/com.micoyc.speakthat" alt="RB shield">](https://shields.rbtlog.dev/com.micoyc.speakthat)
 [![Crowdin](https://badges.crowdin.net/speakthat-notification-reader/localized.svg)](https://crowdin.com/project/speakthat-notification-reader)
+[<img src="https://img.shields.io/badge/SpeakThat!-Official_Website-purple" alt="RB shield">](https://speakthat.app)
 
 ## The Journey to get here!
 
@@ -25,7 +27,7 @@ And so after a few failed versions, I'm pleased to introduce SpeakThat! The noti
 
 - **Reads notifications aloud** from any app, with customizable filters
 - **Privacy-first:**
-  - Nothing is sent to us or anyone else
+  - Nothing is sent to me or anyone else
   - All processing happens on your device
   - You control exactly what gets read
 - **App filtering:**
@@ -37,7 +39,7 @@ And so after a few failed versions, I'm pleased to introduce SpeakThat! The noti
 - **Smart onboarding:**
   - Guided setup for privacy and permissions
 - **Accessible UI:**
-  - Makes use of the Material 3 design system
+  - Makes e of the Material 3 design system
   - Large buttons, clear text, and support for screen readers
   - Works in both portrait and landscape
 - **Customizable voice settings:**

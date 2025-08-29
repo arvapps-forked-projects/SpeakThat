@@ -24,6 +24,7 @@ class OnboardingActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var textToSpeech: TextToSpeech? = null
     private var isTtsInitialized = false
     private var voiceSettingsPrefs: SharedPreferences? = null
+    private var isMuted = false
     private val voiceSettingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         when (key) {
             "speech_rate", "pitch", "voice_name", "audio_usage", "content_type" -> {
@@ -131,7 +132,10 @@ class OnboardingActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // Refresh UI text to ensure it's in the correct language
         adapter.refreshUIText()
         
-        // Speak current page content when resuming
+        // Update mute button icon to ensure it's correct
+        updateMuteButtonIcon()
+        
+        // Speak current page content when resuming (only if not muted)
         speakCurrentPageContent()
     }
     
@@ -140,6 +144,7 @@ class OnboardingActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // Save current page position for language change recreation
         outState.putInt("current_page", binding.viewPager.currentItem)
         outState.putBoolean("skip_permission_page", skipPermissionPage)
+        outState.putBoolean("is_muted", isMuted)
     }
     
     override fun onRestoreInstanceState(savedInstanceState: Bundle) {
@@ -147,12 +152,17 @@ class OnboardingActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // Restore current page position after language change recreation
         val savedPage = savedInstanceState.getInt("current_page", 0)
         val savedSkipPermission = savedInstanceState.getBoolean("skip_permission_page", false)
+        val savedMuted = savedInstanceState.getBoolean("is_muted", false)
         
         // Only restore if the skip permission setting matches (to avoid page mismatch)
         if (savedSkipPermission == skipPermissionPage) {
             binding.viewPager.setCurrentItem(savedPage, false)
             InAppLogger.log(TAG, "Restored onboarding page position: $savedPage")
         }
+        
+        // Restore mute state
+        isMuted = savedMuted
+        updateMuteButtonIcon()
     }
     
     override fun onPause() {
@@ -216,12 +226,71 @@ class OnboardingActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
     
     private fun speakText(text: String) {
-        if (isTtsInitialized && textToSpeech != null) {
+        if (isTtsInitialized && textToSpeech != null && !isMuted) {
             // Stop any current speech first
             textToSpeech?.stop()
+            
+            // CRITICAL: Apply audio attributes to TTS instance before creating volume bundle
+            // This ensures the audio usage matches what we pass to createVolumeBundle
+            val ttsVolume = voiceSettingsPrefs?.getFloat("tts_volume", 1.0f) ?: 1.0f
+            val ttsUsageIndex = voiceSettingsPrefs?.getInt("audio_usage", 4) ?: 4 // Default to ASSISTANT index
+            val contentTypeIndex = voiceSettingsPrefs?.getInt("content_type", 0) ?: 0 // Default to SPEECH
+            val speakerphoneEnabled = voiceSettingsPrefs?.getBoolean("speakerphone_enabled", false) ?: false
+            
+            val ttsUsage = when (ttsUsageIndex) {
+                0 -> android.media.AudioAttributes.USAGE_MEDIA
+                1 -> android.media.AudioAttributes.USAGE_NOTIFICATION
+                2 -> android.media.AudioAttributes.USAGE_ALARM
+                3 -> android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION
+                4 -> android.media.AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE
+                else -> android.media.AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE
+            }
+            
+            val contentType = when (contentTypeIndex) {
+                0 -> android.media.AudioAttributes.CONTENT_TYPE_SPEECH
+                1 -> android.media.AudioAttributes.CONTENT_TYPE_MUSIC
+                2 -> android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION
+                3 -> android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION
+                else -> android.media.AudioAttributes.CONTENT_TYPE_SPEECH
+            }
+            
+            // Apply audio attributes to TTS instance
+            val audioAttributes = android.media.AudioAttributes.Builder()
+                .setUsage(ttsUsage)
+                .setContentType(contentType)
+                .build()
+                
+            textToSpeech?.setAudioAttributes(audioAttributes)
+            InAppLogger.log("OnboardingActivity", "Audio attributes applied - Usage: $ttsUsage, Content: $contentType")
+            
+            val volumeParams = VoiceSettingsActivity.createVolumeBundle(ttsVolume, ttsUsage, speakerphoneEnabled)
+            
             // Then speak the new text
-            textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "onboarding_utterance")
+            textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, volumeParams, "onboarding_utterance")
             InAppLogger.log(TAG, "Speaking: ${text.take(50)}...")
+        }
+    }
+    
+    private fun toggleMute() {
+        isMuted = !isMuted
+        updateMuteButtonIcon()
+        
+        if (isMuted) {
+            // Stop any current speech when muting
+            textToSpeech?.stop()
+            InAppLogger.log(TAG, "Onboarding TTS muted")
+        } else {
+            InAppLogger.log(TAG, "Onboarding TTS unmuted")
+            // Speak the current page content when unmuting
+            speakCurrentPageContent()
+        }
+    }
+    
+    private fun updateMuteButtonIcon() {
+        if (isMuted) {
+            binding.buttonMute.setImageResource(R.drawable.ic_volume_off_24)
+        } else {
+            binding.buttonMute.setImageResource(R.drawable.ic_volume_up_24)
         }
     }
     
@@ -290,6 +359,10 @@ class OnboardingActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // Set up button listeners
         binding.buttonSkip.setOnClickListener {
             completeOnboarding()
+        }
+        
+        binding.buttonMute.setOnClickListener {
+            toggleMute()
         }
         
         binding.buttonNext.setOnClickListener {

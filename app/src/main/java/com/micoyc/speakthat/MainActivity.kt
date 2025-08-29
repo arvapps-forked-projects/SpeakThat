@@ -215,6 +215,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         // Check for updates automatically (if enabled)
         Log.d(TAG, "About to check for updates automatically")
         checkForUpdatesIfEnabled()
+        
+        // Initialize review reminder and track app session
+        initializeReviewReminder()
     }
     
 
@@ -561,6 +564,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
                 }
                 
                 // Apply the new configuration
+                @Suppress("DEPRECATION")
                 resources.updateConfiguration(config, resources.displayMetrics)
                 
                 // Also update the default locale for this session
@@ -741,12 +745,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
                     InAppLogger.logTTSEvent("MainActivity TTS started", text.take(50))
                 }
                 
+                @Suppress("DEPRECATION")
                 override fun onDone(utteranceId: String?) {
                     // Stop shake listening when TTS completes
                     stopShakeListening()
                     InAppLogger.logTTSEvent("MainActivity TTS completed", "Easter egg finished")
                 }
                 
+                @Suppress("DEPRECATION")
                 override fun onError(utteranceId: String?) {
                     // Stop shake listening even on error
                     stopShakeListening()
@@ -755,7 +761,43 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
                 }
             })
             
-            val result = textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "easter_egg")
+            // CRITICAL: Apply audio attributes to TTS instance before creating volume bundle
+            // This ensures the audio usage matches what we pass to createVolumeBundle
+            val voiceSettingsPrefs = getSharedPreferences("VoiceSettings", MODE_PRIVATE)
+            val ttsVolume = voiceSettingsPrefs.getFloat("tts_volume", 1.0f)
+            val ttsUsageIndex = voiceSettingsPrefs.getInt("audio_usage", 4) // Default to ASSISTANT index
+            val contentTypeIndex = voiceSettingsPrefs.getInt("content_type", 0) // Default to SPEECH
+            val speakerphoneEnabled = voiceSettingsPrefs.getBoolean("speakerphone_enabled", false)
+            
+            val ttsUsage = when (ttsUsageIndex) {
+                0 -> android.media.AudioAttributes.USAGE_MEDIA
+                1 -> android.media.AudioAttributes.USAGE_NOTIFICATION
+                2 -> android.media.AudioAttributes.USAGE_ALARM
+                3 -> android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION
+                4 -> android.media.AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE
+                else -> android.media.AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE
+            }
+            
+            val contentType = when (contentTypeIndex) {
+                0 -> android.media.AudioAttributes.CONTENT_TYPE_SPEECH
+                1 -> android.media.AudioAttributes.CONTENT_TYPE_MUSIC
+                2 -> android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION
+                3 -> android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION
+                else -> android.media.AudioAttributes.CONTENT_TYPE_SPEECH
+            }
+            
+            // Apply audio attributes to TTS instance
+            val audioAttributes = android.media.AudioAttributes.Builder()
+                .setUsage(ttsUsage)
+                .setContentType(contentType)
+                .build()
+                
+            textToSpeech?.setAudioAttributes(audioAttributes)
+            InAppLogger.log("MainActivity", "Audio attributes applied - Usage: $ttsUsage, Content: $contentType")
+            
+            val volumeParams = VoiceSettingsActivity.createVolumeBundle(ttsVolume, ttsUsage, speakerphoneEnabled)
+            
+            val result = textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, volumeParams, "easter_egg")
             if (result == TextToSpeech.ERROR) {
                 Log.e(TAG, "TTS speak() returned ERROR")
                 InAppLogger.logError("MainActivity", "TTS speak() failed")
@@ -875,7 +917,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
             
             if (isTriggered) {
                 val maxRange = proximitySensor?.maximumRange ?: 5.0f
-                val significantChange = maxRange * 0.3f
                 val distanceFromMax = maxRange - proximityValue
                 
                 Log.d(TAG, "Wave detected in MainActivity! Stopping TTS. Proximity: $proximityValue cm, threshold: $waveThreshold cm, maxRange: $maxRange cm, distanceFromMax: $distanceFromMax cm")
@@ -885,7 +926,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
                 // Log proximity values for debugging (but not too frequently)
                 if (System.currentTimeMillis() % 1000 < 100) { // Log ~10% of the time
                     val maxRange = proximitySensor?.maximumRange ?: 5.0f
-                    val significantChange = maxRange * 0.3f
                     val distanceFromMax = maxRange - proximityValue
                     Log.d(TAG, "Proximity sensor reading: $proximityValue cm (threshold: $waveThreshold cm, maxRange: $maxRange cm, distanceFromMax: $distanceFromMax cm)")
                 }
@@ -1269,6 +1309,32 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
                 }
             }
         }
+    }
+    
+    /**
+     * Initialize review reminder and track app session
+     */
+    private fun initializeReviewReminder() {
+        val reviewManager = ReviewReminderManager.getInstance(this)
+        
+        // Track this app session
+        reviewManager.incrementAppSession()
+        
+        // Check if we should show the reminder (with a small delay to avoid showing immediately)
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (reviewManager.shouldShowReminder()) {
+                reviewManager.showReminderDialog()
+            }
+        }, 2000) // 2 second delay to let the app settle
+    }
+    
+    /**
+     * Track notification read for review reminder
+     * This should be called when a notification is successfully read aloud
+     */
+    fun trackNotificationRead() {
+        val reviewManager = ReviewReminderManager.getInstance(this)
+        reviewManager.incrementNotificationsRead()
     }
 
 } 

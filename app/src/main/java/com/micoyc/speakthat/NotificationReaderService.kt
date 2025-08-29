@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -14,6 +15,8 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.media.AudioManager
+import android.media.session.MediaController
+import android.media.session.MediaSessionManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.speech.tts.TextToSpeech
@@ -77,7 +80,9 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     
     // Media behavior settings
     private var originalMusicVolume = -1 // Store original volume for restoration
+    private var originalAudioMode = -1 // Store original audio mode for restoration
     private var audioFocusRequest: android.media.AudioFocusRequest? = null
+    private var pausedMediaSessions = mutableListOf<MediaController>() // Track paused media sessions for resume
     
     // Media notification filtering
     private var mediaFilterPreferences = MediaNotificationDetector.MediaFilterPreferences()
@@ -138,6 +143,13 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     // Deduplication tracking - prevent same notification from being processed multiple times
     private val recentNotificationKeys = HashMap<String, Long>() // notificationKey -> timestamp
     
+    // Dismissal memory tracking - prevent re-reading dismissed notifications
+    private val dismissedNotificationKeys = HashMap<String, Long>() // contentHash -> dismissal timestamp
+    private var dismissalMemoryCleanupHandler: android.os.Handler? = null
+    private var dismissalMemoryCleanupRunnable: Runnable? = null
+    private val DISMISSAL_MEMORY_CLEANUP_INTERVAL_MS = 300000L // 5 minutes
+    private val MAX_DISMISSAL_MEMORY_ENTRIES = 1000 // Prevent memory bloat
+    
     // TTS Recovery tracking
     private var ttsRecoveryAttempts = 0
     private var ttsRecoveryHandler: android.os.Handler? = null
@@ -178,7 +190,13 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         private const val READING_NOTIFICATION_ID = 1002
         
         // Deduplication settings
-        private const val DEDUPLICATION_WINDOW_MS = 10000L // 10 seconds window for deduplication (increased from 5s)
+        private const val DEDUPLICATION_WINDOW_MS = 30000L // 30 seconds window for deduplication (increased to handle notification updates)
+        
+        // Dismissal memory settings
+        private const val KEY_DISMISSAL_MEMORY_ENABLED = "dismissal_memory_enabled"
+        private const val KEY_DISMISSAL_MEMORY_TIMEOUT = "dismissal_memory_timeout"
+        private const val DEFAULT_DISMISSAL_MEMORY_ENABLED = true
+        private const val DEFAULT_DISMISSAL_MEMORY_TIMEOUT_MINUTES = 15
         
         // Filter system keys
         private const val KEY_APP_LIST_MODE = "app_list_mode"
@@ -324,6 +342,9 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             startPeriodicHealthCheck()
             Log.d(TAG, "Periodic TTS health check started")
             
+            // Start dismissal memory cleanup
+            startDismissalMemoryCleanup()
+            
             Log.d(TAG, "NotificationReaderService initialization completed successfully")
             InAppLogger.log("Service", "Service initialization completed successfully")
             
@@ -393,6 +414,13 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             // Clear deduplication cache
             recentNotificationKeys.clear()
             Log.d(TAG, "Cleared deduplication cache during cleanup")
+            
+            // Clear dismissal memory cache
+            dismissedNotificationKeys.clear()
+            Log.d(TAG, "Cleared dismissal memory cache during cleanup")
+            
+            // Stop dismissal memory cleanup
+            stopDismissalMemoryCleanup()
             
             // Hide all SpeakThat notifications
             hidePersistentNotification()
@@ -485,8 +513,11 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 // Extract notification text
                 val notificationText = extractNotificationText(notification)
                 
+                // Log notification details for debugging
+                Log.d(TAG, "Processing notification - Package: $packageName, ID: ${sbn.id}, Text: '${notificationText.take(100)}...'")
+                
                 // Check for duplicate notifications (only if deduplication is enabled)
-                val isDeduplicationEnabled = sharedPreferences?.getBoolean("notification_deduplication", false) ?: false
+                val isDeduplicationEnabled = sharedPreferences?.getBoolean("notification_deduplication", true) ?: true
                 if (isDeduplicationEnabled) {
                     val notificationKey = generateNotificationKey(packageName, sbn.id, notificationText)
                     val currentTime = System.currentTimeMillis()
@@ -514,20 +545,60 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                     Log.d(TAG, "Deduplication: Added notification key for $appName (key: $notificationKey)")
                     Log.d(TAG, "Deduplication map size: ${recentNotificationKeys.size}")
                     
-                    // Additional content-based deduplication for problematic apps
+                    // Enhanced content-based deduplication for all apps (not just problematic ones)
+                    // This helps catch notification updates that might have slightly different content
+                    val contentKey = generateContentKey(packageName, notificationText)
+                    val lastContentTime = recentNotificationKeys[contentKey]
+                    if (lastContentTime != null && currentTime - lastContentTime < DEDUPLICATION_WINDOW_MS) {
+                        val timeSinceLastContent = currentTime - lastContentTime
+                        Log.d(TAG, "Content-based duplicate detected from $appName - skipping (processed ${timeSinceLastContent}ms ago)")
+                        InAppLogger.logFilter("Content-based duplicate from $appName - skipping (processed ${timeSinceLastContent}ms ago)")
+                        return
+                    }
+                    recentNotificationKeys[contentKey] = currentTime
+                    
+                    // Additional app-specific deduplication for known problematic apps
                     if (isProblematicApp(packageName)) {
-                        val contentKey = generateContentKey(packageName, notificationText)
-                        val lastContentTime = recentNotificationKeys[contentKey]
-                        if (lastContentTime != null && currentTime - lastContentTime < DEDUPLICATION_WINDOW_MS) {
-                            val timeSinceLastContent = currentTime - lastContentTime
-                            Log.d(TAG, "Content-based duplicate detected from $appName - skipping (processed ${timeSinceLastContent}ms ago)")
-                            InAppLogger.logFilter("Content-based duplicate from $appName - skipping (processed ${timeSinceLastContent}ms ago)")
+                        val appSpecificKey = "app_${packageName}_${sbn.id}"
+                        val lastAppSpecificTime = recentNotificationKeys[appSpecificKey]
+                        if (lastAppSpecificTime != null && currentTime - lastAppSpecificTime < DEDUPLICATION_WINDOW_MS) {
+                            val timeSinceLastAppSpecific = currentTime - lastAppSpecificTime
+                            Log.d(TAG, "App-specific duplicate detected from $appName - skipping (processed ${timeSinceLastAppSpecific}ms ago)")
+                            InAppLogger.logFilter("App-specific duplicate from $appName - skipping (processed ${timeSinceLastAppSpecific}ms ago)")
                             return
                         }
-                        recentNotificationKeys[contentKey] = currentTime
+                        recentNotificationKeys[appSpecificKey] = currentTime
                     }
                 } else {
                     Log.d(TAG, "Deduplication is disabled - processing all notifications")
+                }
+                
+                // Check dismissal memory - prevent re-reading recently dismissed notifications
+                val isDismissalMemoryEnabled = sharedPreferences?.getBoolean(KEY_DISMISSAL_MEMORY_ENABLED, DEFAULT_DISMISSAL_MEMORY_ENABLED) ?: DEFAULT_DISMISSAL_MEMORY_ENABLED
+                if (isDismissalMemoryEnabled) {
+                    try {
+                        val currentTime = System.currentTimeMillis()
+                        val dismissalContentHash = generateDismissalContentHash(packageName, notificationText)
+                        val dismissalTimeoutMinutes = sharedPreferences?.getInt(KEY_DISMISSAL_MEMORY_TIMEOUT, DEFAULT_DISMISSAL_MEMORY_TIMEOUT_MINUTES) ?: DEFAULT_DISMISSAL_MEMORY_TIMEOUT_MINUTES
+                        val dismissalTimeoutMs = dismissalTimeoutMinutes * 60 * 1000L
+                        
+                        // Check if this content was recently dismissed
+                        val dismissalTime = dismissedNotificationKeys[dismissalContentHash]
+                        if (dismissalTime != null && currentTime - dismissalTime < dismissalTimeoutMs) {
+                            val timeSinceDismissal = currentTime - dismissalTime
+                            val timeSinceDismissalMinutes = timeSinceDismissal / (60 * 1000)
+                            Log.d(TAG, "Dismissed notification detected from $appName - skipping (dismissed ${timeSinceDismissalMinutes} minutes ago)")
+                            Log.d(TAG, "Dismissal memory: Content hash: $dismissalContentHash, Timeout: ${dismissalTimeoutMinutes} minutes")
+                            InAppLogger.logFilter("Dismissed notification from $appName - skipping (dismissed ${timeSinceDismissalMinutes} minutes ago)")
+                            return
+                        }
+                    } catch (e: Exception) {
+                        // Graceful degradation: if dismissal memory fails, continue processing
+                        Log.e(TAG, "Error in dismissal memory check - continuing with notification processing", e)
+                        InAppLogger.logError("Service", "Dismissal memory check failed - continuing: " + e.message)
+                    }
+                } else {
+                    Log.d(TAG, "Dismissal memory disabled - processing all notifications")
                 }
                 
                 if (notificationText.isNotEmpty()) {
@@ -590,7 +661,57 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         super.onNotificationRemoved(sbn)
-        // We don't need to do anything when notifications are removed for now
+        
+        try {
+            // Skip our own notifications
+            if (sbn.packageName == this.packageName) {
+                return
+            }
+            
+            // Check if dismissal memory is enabled
+            val isDismissalMemoryEnabled = sharedPreferences?.getBoolean(KEY_DISMISSAL_MEMORY_ENABLED, DEFAULT_DISMISSAL_MEMORY_ENABLED) ?: DEFAULT_DISMISSAL_MEMORY_ENABLED
+            if (!isDismissalMemoryEnabled) {
+                Log.d(TAG, "Dismissal memory disabled - not tracking dismissed notification from ${sbn.packageName}")
+                return
+            }
+            
+            // Extract notification content for tracking
+            val notificationText = extractNotificationText(sbn.notification)
+            if (notificationText.isEmpty()) {
+                Log.d(TAG, "Dismissed notification has empty content - not tracking")
+                return
+            }
+            
+            // Generate content hash for dismissal tracking
+            val contentHash = generateDismissalContentHash(sbn.packageName, notificationText)
+            val currentTime = System.currentTimeMillis()
+            
+            // Add to dismissed notifications map with memory management
+            dismissedNotificationKeys[contentHash] = currentTime
+            
+            // Memory management: if we exceed the limit, remove oldest entries
+            if (dismissedNotificationKeys.size > MAX_DISMISSAL_MEMORY_ENTRIES) {
+                val entriesToRemove = dismissedNotificationKeys.size - MAX_DISMISSAL_MEMORY_ENTRIES
+                val oldestEntries = dismissedNotificationKeys.entries.sortedBy { it.value }.take(entriesToRemove)
+                oldestEntries.forEach { (key, _) ->
+                    dismissedNotificationKeys.remove(key)
+                }
+                Log.d(TAG, "Dismissal memory limit reached - removed $entriesToRemove oldest entries")
+                InAppLogger.log("Service", "Dismissal memory cleanup: removed $entriesToRemove oldest entries due to limit")
+            }
+            
+            // Log the dismissal for debugging
+            val appName = getAppName(sbn.packageName)
+            Log.d(TAG, "Notification dismissed from $appName - tracking for dismissal memory (hash: $contentHash)")
+            InAppLogger.logFilter("Notification dismissed from $appName - tracking for dismissal memory")
+            
+            // Log dismissal memory stats
+            Log.d(TAG, "Dismissal memory stats - Total tracked: ${dismissedNotificationKeys.size}")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error tracking dismissed notification", e)
+            InAppLogger.logError("Service", "Error tracking dismissed notification: ${e.message}")
+        }
     }
     
     private fun initializeTextToSpeech() {
@@ -795,6 +916,90 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         InAppLogger.log("Service", "Periodic TTS health check stopped")
     }
     
+    /**
+     * Start periodic dismissal memory cleanup
+     * Removes old dismissed notification entries to prevent memory bloat
+     */
+    private fun startDismissalMemoryCleanup() {
+        try {
+            // Create handler if it doesn't exist
+            if (dismissalMemoryCleanupHandler == null) {
+                dismissalMemoryCleanupHandler = android.os.Handler(android.os.Looper.getMainLooper())
+            }
+            
+            // Create cleanup runnable
+            dismissalMemoryCleanupRunnable = Runnable {
+                try {
+                    cleanupDismissalMemory()
+                    
+                    // Schedule next cleanup
+                    dismissalMemoryCleanupHandler?.postDelayed(dismissalMemoryCleanupRunnable!!, DISMISSAL_MEMORY_CLEANUP_INTERVAL_MS)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in dismissal memory cleanup", e)
+                    InAppLogger.logError("Service", "Error in dismissal memory cleanup: " + e.message)
+                }
+            }
+            
+            // Start the first cleanup
+            dismissalMemoryCleanupHandler?.postDelayed(dismissalMemoryCleanupRunnable!!, DISMISSAL_MEMORY_CLEANUP_INTERVAL_MS)
+            Log.d(TAG, "Dismissal memory cleanup started (every ${DISMISSAL_MEMORY_CLEANUP_INTERVAL_MS / 1000} seconds)")
+            InAppLogger.log("Service", "Dismissal memory cleanup started (every ${DISMISSAL_MEMORY_CLEANUP_INTERVAL_MS / 1000} seconds)")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting dismissal memory cleanup", e)
+            InAppLogger.logError("Service", "Error starting dismissal memory cleanup: " + e.message)
+        }
+    }
+    
+    /**
+     * Stop periodic dismissal memory cleanup
+     */
+    private fun stopDismissalMemoryCleanup() {
+        dismissalMemoryCleanupRunnable?.let { runnable ->
+            dismissalMemoryCleanupHandler?.removeCallbacks(runnable)
+            dismissalMemoryCleanupRunnable = null
+        }
+        dismissalMemoryCleanupHandler = null
+        Log.d(TAG, "Dismissal memory cleanup stopped")
+        InAppLogger.log("Service", "Dismissal memory cleanup stopped")
+    }
+    
+    /**
+     * Clean up old dismissed notification entries
+     * Removes entries that are older than the configured timeout
+     */
+    private fun cleanupDismissalMemory() {
+        try {
+            val currentTime = System.currentTimeMillis()
+            val timeoutMinutes = sharedPreferences?.getInt(KEY_DISMISSAL_MEMORY_TIMEOUT, DEFAULT_DISMISSAL_MEMORY_TIMEOUT_MINUTES) ?: DEFAULT_DISMISSAL_MEMORY_TIMEOUT_MINUTES
+            val timeoutMs = timeoutMinutes * 60 * 1000L
+            
+            // Count entries before cleanup
+            val entriesBeforeCleanup = dismissedNotificationKeys.size
+            
+            // Remove expired entries
+            dismissedNotificationKeys.entries.removeIf { (_, dismissalTime) ->
+                currentTime - dismissalTime > timeoutMs
+            }
+            
+            // Log cleanup results
+            val entriesAfterCleanup = dismissedNotificationKeys.size
+            val entriesRemoved = entriesBeforeCleanup - entriesAfterCleanup
+            
+            if (entriesRemoved > 0) {
+                Log.d(TAG, "Dismissal memory cleanup: Removed $entriesRemoved expired entries (timeout: ${timeoutMinutes} minutes)")
+                InAppLogger.log("Service", "Dismissal memory cleanup: Removed $entriesRemoved expired entries")
+            }
+            
+            // Log current stats
+            Log.d(TAG, "Dismissal memory stats: $entriesAfterCleanup active entries, timeout: ${timeoutMinutes} minutes")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during dismissal memory cleanup", e)
+            InAppLogger.logError("Service", "Error during dismissal memory cleanup: " + e.message)
+        }
+    }
+    
     override fun onInit(status: Int) {
         try {
             Log.d(TAG, "TTS onInit called with status: $status")
@@ -902,8 +1107,8 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     
     /**
      * Generate a unique key for a notification to enable deduplication
-     * Uses package name, notification ID, content hash, and timestamp to identify duplicates
-     * Improved to handle cases where apps reuse notification IDs
+     * Uses package name, notification ID, and content hash to identify duplicates
+     * Removed timestamp to better handle notification updates
      */
     private fun generateNotificationKey(packageName: String, notificationId: Int, content: String): String {
         // Create a more robust hash of the content using SHA-256
@@ -916,25 +1121,68 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             content.hashCode().toString()
         }
         
-        // Include timestamp to handle cases where apps reuse notification IDs
-        val timestamp = System.currentTimeMillis() / 1000 // Use seconds to group similar timestamps
-        return "${packageName}_${notificationId}_${contentHash}_${timestamp}"
+        // Remove timestamp to better handle notification updates
+        // Use package name, notification ID, and content hash only
+        return "${packageName}_${notificationId}_${contentHash}"
     }
     
     /**
      * Generate a content-based key for additional deduplication
-     * Used for problematic apps that reuse notification IDs frequently
+     * Used for all apps to catch notification updates with similar content
      */
     private fun generateContentKey(packageName: String, content: String): String {
+        // Normalize content for better deduplication (remove extra whitespace, normalize case)
+        val normalizedContent = content.trim().replace(Regex("\\s+"), " ").lowercase()
+        
         val contentHash = try {
             val digest = java.security.MessageDigest.getInstance("SHA-256")
-            val hashBytes = digest.digest(content.toByteArray())
-            hashBytes.take(4).joinToString("") { "%02x".format(it) } // Use first 4 bytes as hex string
+            val hashBytes = digest.digest(normalizedContent.toByteArray())
+            hashBytes.take(6).joinToString("") { "%02x".format(it) } // Use first 6 bytes as hex string for better uniqueness
         } catch (e: Exception) {
             Log.e(TAG, "Error generating content hash, falling back to hashCode", e)
-            content.hashCode().toString()
+            normalizedContent.hashCode().toString()
         }
         return "content_${packageName}_${contentHash}"
+    }
+    
+    /**
+     * Generate a content hash for dismissal memory tracking
+     * Uses package name and normalized content to identify dismissed notifications
+     * More aggressive normalization for better dismissal detection
+     */
+    private fun generateDismissalContentHash(packageName: String, content: String): String {
+        try {
+            // Normalize content more aggressively for dismissal tracking
+            // Remove extra whitespace, normalize case, and remove common punctuation
+            val normalizedContent = content.trim()
+                .replace(Regex("\\s+"), " ") // Normalize whitespace
+                .lowercase() // Normalize case
+                .replace(Regex("[.,!?;:]"), "") // Remove common punctuation
+                .trim() // Final trim
+            
+            // Fallback for empty content
+            if (normalizedContent.isEmpty()) {
+                Log.w(TAG, "Empty content after normalization - using package name only for dismissal hash")
+                return "dismissal_${packageName}_empty"
+            }
+            
+            val contentHash = try {
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+                val hashBytes = digest.digest(normalizedContent.toByteArray())
+                hashBytes.take(8).joinToString("") { "%02x".format(it) } // Use first 8 bytes as hex string
+            } catch (e: Exception) {
+                Log.e(TAG, "Error generating dismissal content hash, falling back to hashCode", e)
+                normalizedContent.hashCode().toString()
+            }
+            
+            // Include package name in hash for app-specific dismissal tracking
+            return "dismissal_${packageName}_${contentHash}"
+            
+        } catch (e: Exception) {
+            // Ultimate fallback: use package name and content length
+            Log.e(TAG, "Critical error generating dismissal content hash, using fallback", e)
+            return "dismissal_${packageName}_fallback_${content.length}"
+        }
     }
     
     /**
@@ -1268,9 +1516,9 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         // Load speech template
         speechTemplate = sharedPreferences?.getString(KEY_SPEECH_TEMPLATE, "{app} notified you: {content}") ?: "{app} notified you: {content}"
         
-        // Load notification settings
-        val isPersistentNotificationEnabled = sharedPreferences?.getBoolean(KEY_PERSISTENT_NOTIFICATION, false) ?: false
-        val isNotificationWhileReadingEnabled = sharedPreferences?.getBoolean(KEY_NOTIFICATION_WHILE_READING, false) ?: false
+        // Load notification settings (values used in other parts of the service)
+        sharedPreferences?.getBoolean(KEY_PERSISTENT_NOTIFICATION, false) ?: false
+        sharedPreferences?.getBoolean(KEY_NOTIFICATION_WHILE_READING, false) ?: false
         
         Log.d(TAG, "Filter settings loaded - appMode: $appListMode, apps: ${appList.size}, blocked words: ${blockedWords.size}, replacements: ${wordReplacements.size}")
         Log.d(TAG, "Behavior settings loaded - mode: $notificationBehavior, priority apps: ${priorityApps.size}")
@@ -1424,7 +1672,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         return FilterResult(true, processedText, "Word filtering applied")
     }
     
-    private fun applyConditionalFiltering(packageName: String, appName: String, text: String): FilterResult {
+    private fun applyConditionalFiltering(_packageName: String, _appName: String, text: String): FilterResult {
         try {
             // Check if rules system is enabled
             if (!::ruleManager.isInitialized) {
@@ -1663,6 +1911,16 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             Log.d(TAG, "Cancelled pending delayed readout due to $triggerType")
         }
         
+        // Disable speakerphone if it was enabled
+        try {
+            if (audioManager.isSpeakerphoneOn) {
+                audioManager.isSpeakerphoneOn = false
+                InAppLogger.log("Service", "Speakerphone disabled after stopping speech")
+            }
+        } catch (e: Exception) {
+            InAppLogger.logError("Service", "Failed to disable speakerphone: ${e.message}")
+        }
+        
         // Clean up media behavior effects
         cleanupMediaBehavior()
         
@@ -1709,7 +1967,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
      * - If you revisit this code, check for new Android APIs or device-specific workarounds, but be aware that most limitations are outside app control.
      * - See BehaviorSettingsActivity and VoiceSettingsActivity for user guidance and warnings.
      */
-    private fun handleMediaBehavior(appName: String, text: String, sbn: StatusBarNotification? = null): Boolean {
+    private fun handleMediaBehavior(appName: String, _text: String, sbn: StatusBarNotification? = null): Boolean {
         val isMusicActive = audioManager.isMusicActive
         Log.d(TAG, "Media behavior check - isMusicActive: $isMusicActive, mediaBehavior: $mediaBehavior, isCurrentlySpeaking: $isCurrentlySpeaking")
         
@@ -1743,21 +2001,48 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 return true
             }
             "pause" -> {
-                Log.d(TAG, "Media behavior: PAUSE - requesting audio focus")
-                val focusGranted = requestAudioFocusForSpeech()
-                // Always allow notification to be spoken after requesting audio focus, unless it's a media control notification
-                if (!focusGranted) {
-                    Log.w(TAG, "Audio focus not granted, but proceeding to speak notification anyway (pause mode)")
-                    InAppLogger.log("MediaBehavior", "Audio focus not granted in pause mode. Proceeding to speak notification anyway.")
+                Log.d(TAG, "Media behavior: PAUSE - attempting direct media session control")
+                InAppLogger.log("MediaBehavior", "Pause mode initiated - attempting direct media session control")
+                
+                // Step 1: Try direct media session control (strongest approach)
+                val mediaSessionSuccess = tryMediaSessionPause()
+                if (mediaSessionSuccess) {
+                    Log.d(TAG, "Direct media session control successful - media paused")
+                    InAppLogger.log("MediaBehavior", "Direct media session control successful - media paused")
+                    return true
                 }
-                // Log device and audio info for diagnostics
-                val voicePrefs = getSharedPreferences("VoiceSettings", MODE_PRIVATE)
-                val ttsUsage = voicePrefs.getInt("audio_usage", android.media.AudioAttributes.USAGE_ASSISTANT)
-                val ttsContent = voicePrefs.getInt("content_type", android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
-                val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-                val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-                InAppLogger.log("MediaBehavior", "Pause mode triggered. Device: ${android.os.Build.MODEL}, Android: ${android.os.Build.VERSION.SDK_INT}, TTS usage: $ttsUsage, TTS content: $ttsContent, Media volume: $currentVolume/$maxVolume")
-                return true
+                
+                // Step 2: Fall back to audio focus approach
+                Log.d(TAG, "Media session control failed - falling back to audio focus")
+                InAppLogger.log("MediaBehavior", "Media session control failed - trying audio focus")
+                
+                val focusGranted = requestAudioFocusForSpeech()
+                
+                if (focusGranted) {
+                    Log.d(TAG, "Audio focus granted - media should pause")
+                    InAppLogger.log("MediaBehavior", "Audio focus granted - media pause successful")
+                    return true
+                } else {
+                    // Audio focus denied - try fallback strategies
+                    Log.w(TAG, "Audio focus denied - trying fallback strategies")
+                    InAppLogger.log("MediaBehavior", "Audio focus denied - attempting fallback strategies")
+                    
+                    // Fallback 1: Try manual volume reduction as a "soft pause"
+                    val fallbackSuccess = trySoftPauseFallback()
+                    if (fallbackSuccess) {
+                        Log.d(TAG, "Fallback successful - using soft pause (volume reduction)")
+                        InAppLogger.log("MediaBehavior", "Fallback successful - using soft pause approach")
+                        return true
+                    }
+                    
+                    // Fallback 2: Proceed anyway but warn user
+                    Log.w(TAG, "All pause strategies failed - proceeding with notification anyway")
+                    InAppLogger.log("MediaBehavior", "All pause strategies failed - proceeding anyway (user may need to manually pause media)")
+                    
+                    // Log detailed diagnostics for troubleshooting
+                    logPauseModeDiagnostics()
+                    return true
+                }
             }
             "duck" -> {
                 Log.d(TAG, "Media behavior: DUCK - attempting enhanced ducking approach")
@@ -1807,12 +2092,379 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     }
     
     private fun requestAudioFocusForSpeech(): Boolean {
+        Log.d(TAG, "Requesting audio focus for pause mode - Device: ${android.os.Build.MODEL}, Android: ${android.os.Build.VERSION.SDK_INT}")
+        InAppLogger.log("MediaBehavior", "Requesting audio focus for pause mode on ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.SDK_INT})")
+        
         return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            // Use AudioFocusRequest for API 26+
+            // Try multiple audio focus strategies for better compatibility
+            val strategies = listOf(
+                // Strategy 1: Use ASSISTANT usage (most likely to be granted to notification services)
+                AudioFocusStrategy(
+                    usage = android.media.AudioAttributes.USAGE_ASSISTANT,
+                    contentType = android.media.AudioAttributes.CONTENT_TYPE_SPEECH,
+                    focusGain = android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
+                    description = "Assistant usage with transient focus"
+                ),
+                // Strategy 2: Use NOTIFICATION usage (alternative for notification services)
+                AudioFocusStrategy(
+                    usage = android.media.AudioAttributes.USAGE_NOTIFICATION,
+                    contentType = android.media.AudioAttributes.CONTENT_TYPE_SPEECH,
+                    focusGain = android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
+                    description = "Notification usage with transient focus"
+                ),
+                // Strategy 3: Use ASSISTANT with MAY_DUCK (less aggressive, more likely to be granted)
+                AudioFocusStrategy(
+                    usage = android.media.AudioAttributes.USAGE_ASSISTANT,
+                    contentType = android.media.AudioAttributes.CONTENT_TYPE_SPEECH,
+                    focusGain = android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK,
+                    description = "Assistant usage with transient may-duck focus"
+                ),
+                // Strategy 4: Use NOTIFICATION with MAY_DUCK
+                AudioFocusStrategy(
+                    usage = android.media.AudioAttributes.USAGE_NOTIFICATION,
+                    contentType = android.media.AudioAttributes.CONTENT_TYPE_SPEECH,
+                    focusGain = android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK,
+                    description = "Notification usage with transient may-duck focus"
+                )
+            )
+            
+            // Try each strategy until one works
+            for (strategy in strategies) {
+                val result = tryAudioFocusStrategy(strategy)
+                if (result) {
+                    Log.d(TAG, "Audio focus granted using strategy: ${strategy.description}")
+                    InAppLogger.log("MediaBehavior", "Audio focus granted using: ${strategy.description}")
+                    return true
+                } else {
+                    Log.d(TAG, "Audio focus denied for strategy: ${strategy.description}")
+                    InAppLogger.log("MediaBehavior", "Audio focus denied for: ${strategy.description}")
+                }
+            }
+            
+            // If all strategies fail, log detailed diagnostic information
+            logAudioFocusDiagnostics()
+            false
+            
+        } else {
+            // Use deprecated method for older versions
+            @Suppress("DEPRECATION")
+            val result = audioManager.requestAudioFocus(
+                { focusChange -> handleAudioFocusChange(focusChange) },
+                android.media.AudioManager.STREAM_MUSIC,
+                android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+            )
+            val granted = result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            Log.d(TAG, "Legacy audio focus request result: $result (granted: $granted)")
+            InAppLogger.log("MediaBehavior", "Legacy audio focus result: $result (granted: $granted)")
+            granted
+        }
+    }
+    
+    private data class AudioFocusStrategy(
+        val usage: Int,
+        val contentType: Int,
+        val focusGain: Int,
+        val description: String
+    )
+    
+    private fun tryAudioFocusStrategy(strategy: AudioFocusStrategy): Boolean {
+        return try {
+            // Create audio attributes
+            val audioAttributes = android.media.AudioAttributes.Builder()
+                .setUsage(strategy.usage)
+                .setContentType(strategy.contentType)
+                .build()
+            
+            // Create focus request
+            audioFocusRequest = android.media.AudioFocusRequest.Builder(strategy.focusGain)
+                .setAudioAttributes(audioAttributes)
+                .setOnAudioFocusChangeListener { focusChange ->
+                    handleAudioFocusChange(focusChange)
+                }
+                .setAcceptsDelayedFocusGain(false) // We want immediate response for notifications
+                .setWillPauseWhenDucked(false) // We don't want our TTS to be ducked
+                .build()
+            
+            // Request audio focus
+            val result = audioManager.requestAudioFocus(audioFocusRequest!!)
+            result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception during audio focus strategy: ${strategy.description}", e)
+            InAppLogger.logError("MediaBehavior", "Audio focus strategy exception: ${e.message}")
+            false
+        }
+    }
+    
+
+    
+    private fun logAudioFocusDiagnostics() {
+        try {
+            // Log current audio state
+            val isMusicActive = audioManager.isMusicActive
+            val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+            val ringerMode = audioManager.ringerMode
+            
+            // Log TTS settings
+            val voicePrefs = getSharedPreferences("VoiceSettings", MODE_PRIVATE)
+            val ttsUsage = voicePrefs.getInt("audio_usage", android.media.AudioAttributes.USAGE_ASSISTANT)
+            val ttsContent = voicePrefs.getInt("content_type", android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+            
+            val diagnosticInfo = """
+                Audio Focus Diagnostics:
+                - Device: ${android.os.Build.MODEL}
+                - Android: ${android.os.Build.VERSION.SDK_INT}
+                - Music Active: $isMusicActive
+                - Media Volume: $currentVolume/$maxVolume
+                - Ringer Mode: $ringerMode
+                - TTS Usage: $ttsUsage
+                - TTS Content: $ttsContent
+                - All audio focus strategies failed
+            """.trimIndent()
+            
+            Log.w(TAG, diagnosticInfo)
+            InAppLogger.log("MediaBehavior", "Audio focus diagnostics: Device=${android.os.Build.MODEL}, Android=${android.os.Build.VERSION.SDK_INT}, MusicActive=$isMusicActive, Volume=$currentVolume/$maxVolume")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error logging audio focus diagnostics", e)
+        }
+    }
+    
+    /**
+     * Attempt direct media session control to pause active media playback.
+     * This is the strongest approach for pausing media, bypassing audio focus limitations.
+     */
+    private fun tryMediaSessionPause(): Boolean {
+        return try {
+            Log.d(TAG, "Attempting direct media session control to pause media")
+            InAppLogger.log("MediaBehavior", "Attempting direct media session control")
+            
+            val mediaSessionManager = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+            // Use the notification listener service-specific method to bypass permission restrictions
+            val notificationListenerComponent = ComponentName(this, NotificationReaderService::class.java)
+            val controllers = mediaSessionManager.getActiveSessions(notificationListenerComponent)
+            
+            if (controllers.isEmpty()) {
+                Log.d(TAG, "No active media sessions found")
+                InAppLogger.log("MediaBehavior", "No active media sessions found")
+                false
+            } else {
+                var pausedAny = false
+                pausedMediaSessions.clear() // Clear previous sessions
+                
+                for (controller in controllers) {
+                    try {
+                        val playbackState = controller.playbackState
+                        if (playbackState != null && playbackState.state == android.media.session.PlaybackState.STATE_PLAYING) {
+                            Log.d(TAG, "Pausing media session: ${controller.packageName}")
+                            InAppLogger.log("MediaBehavior", "Pausing media session: ${controller.packageName}")
+                            
+                            controller.transportControls.pause()
+                            pausedMediaSessions.add(controller)
+                            pausedAny = true
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to pause media session: ${controller.packageName}", e)
+                        InAppLogger.logError("MediaBehavior", "Failed to pause media session: ${controller.packageName} - ${e.message}")
+                    }
+                }
+                
+                if (pausedAny) {
+                    Log.d(TAG, "Successfully paused ${pausedMediaSessions.size} media session(s)")
+                    InAppLogger.log("MediaBehavior", "Successfully paused ${pausedMediaSessions.size} media session(s)")
+                    true
+                } else {
+                    Log.d(TAG, "No playing media sessions found to pause")
+                    InAppLogger.log("MediaBehavior", "No playing media sessions found to pause")
+                    false
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Media session control failed", e)
+            InAppLogger.logError("MediaBehavior", "Media session control failed: ${e.message}")
+            false
+        }
+    }
+    
+    /**
+     * Resume previously paused media sessions.
+     * Called after TTS completes to restore media playback.
+     */
+    private fun resumeMediaSessions() {
+        if (pausedMediaSessions.isEmpty()) {
+            return
+        }
+        
+        try {
+            Log.d(TAG, "Resuming ${pausedMediaSessions.size} media session(s)")
+            InAppLogger.log("MediaBehavior", "Resuming ${pausedMediaSessions.size} media session(s)")
+            
+            for (controller in pausedMediaSessions) {
+                try {
+                    controller.transportControls.play()
+                    Log.d(TAG, "Resumed media session: ${controller.packageName}")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to resume media session: ${controller.packageName}", e)
+                    InAppLogger.logError("MediaBehavior", "Failed to resume media session: ${controller.packageName} - ${e.message}")
+                }
+            }
+            
+            pausedMediaSessions.clear()
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resuming media sessions", e)
+            InAppLogger.logError("MediaBehavior", "Error resuming media sessions: ${e.message}")
+        }
+    }
+    
+    /**
+     * Fallback strategy for pause mode when audio focus is denied.
+     * Attempts to reduce media volume significantly as a "soft pause" alternative.
+     */
+    private fun trySoftPauseFallback(): Boolean {
+        return try {
+            Log.d(TAG, "Attempting soft pause fallback - reducing media volume significantly")
+            InAppLogger.log("MediaBehavior", "Attempting soft pause fallback")
+            
+            // Get current media volume
+            val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+            
+            // Store original volume for restoration
+            if (originalMusicVolume == -1) {
+                originalMusicVolume = currentVolume
+            }
+            
+            // Reduce volume to 10% as a "soft pause" (much more aggressive than ducking)
+            val softPauseVolume = (maxVolume * 10 / 100).coerceAtLeast(1)
+            
+            // Apply volume reduction
+            audioManager.setStreamVolume(
+                android.media.AudioManager.STREAM_MUSIC,
+                softPauseVolume,
+                0
+            )
+            
+            Log.d(TAG, "Soft pause applied - reduced volume from $currentVolume to $softPauseVolume (max: $maxVolume)")
+            InAppLogger.log("MediaBehavior", "Soft pause applied - volume reduced to 10% (will be restored after TTS)")
+            
+            true
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Soft pause fallback failed", e)
+            InAppLogger.logError("MediaBehavior", "Soft pause fallback failed: ${e.message}")
+            false
+        }
+    }
+    
+    /**
+     * Log detailed diagnostics for pause mode failures.
+     * This helps users understand why pause mode might not work on their device.
+     */
+    private fun logPauseModeDiagnostics() {
+        try {
+            val deviceInfo = """
+                Pause Mode Diagnostics:
+                - Device: ${android.os.Build.MODEL}
+                - Manufacturer: ${android.os.Build.MANUFACTURER}
+                - Android Version: ${android.os.Build.VERSION.SDK_INT}
+                - Android Release: ${android.os.Build.VERSION.RELEASE}
+                - Audio Focus Strategies Tried: 4
+                - All Strategies Failed: Yes
+                - Possible Causes:
+                  * Device has restrictive audio focus policies
+                  * Notification listener services not granted audio focus
+                  * Custom ROM or manufacturer modifications
+                  * Android 13+ background service limitations
+                - Recommendation: Try "Lower Audio" mode instead
+            """.trimIndent()
+            
+            Log.w(TAG, deviceInfo)
+            InAppLogger.log("MediaBehavior", "Pause mode failed on ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.SDK_INT}) - all audio focus strategies denied")
+            
+            // Check if this is a known problematic device
+            checkKnownProblematicDevice()
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error logging pause mode diagnostics", e)
+        }
+    }
+    
+    /**
+     * Check if the current device is known to have audio focus issues.
+     * Provides specific guidance for known problematic devices.
+     */
+    private fun checkKnownProblematicDevice() {
+        val manufacturer = android.os.Build.MANUFACTURER.lowercase()
+        val model = android.os.Build.MODEL.lowercase()
+        val androidVersion = android.os.Build.VERSION.SDK_INT
+        
+        val knownIssues = mutableListOf<String>()
+        
+        // Check for known problematic manufacturers
+        when {
+            manufacturer.contains("samsung") -> {
+                knownIssues.add("Samsung devices often have restrictive audio focus policies")
+                if (androidVersion >= 33) {
+                    knownIssues.add("Android 13+ on Samsung has additional background service restrictions")
+                }
+            }
+            manufacturer.contains("xiaomi") || manufacturer.contains("redmi") || manufacturer.contains("poco") -> {
+                knownIssues.add("Xiaomi devices frequently block audio focus for notification services")
+                knownIssues.add("MIUI may have additional audio focus restrictions")
+            }
+            manufacturer.contains("huawei") || manufacturer.contains("honor") -> {
+                knownIssues.add("Huawei/Honor devices often restrict audio focus for background services")
+                knownIssues.add("EMUI/HarmonyOS may block audio focus requests")
+            }
+            manufacturer.contains("oneplus") -> {
+                knownIssues.add("OnePlus devices may have OxygenOS-specific audio focus limitations")
+            }
+            manufacturer.contains("oppo") || manufacturer.contains("realme") -> {
+                knownIssues.add("OPPO/Realme devices often have ColorOS audio focus restrictions")
+            }
+            manufacturer.contains("vivo") -> {
+                knownIssues.add("Vivo devices may have FuntouchOS audio focus limitations")
+            }
+        }
+        
+        // Check for specific problematic models
+        when {
+            model.contains("pixel") && androidVersion >= 33 -> {
+                knownIssues.add("Pixel devices on Android 13+ have stricter background service policies")
+            }
+            model.contains("galaxy") && androidVersion >= 33 -> {
+                knownIssues.add("Samsung Galaxy devices on Android 13+ have additional restrictions")
+            }
+        }
+        
+        // Log specific guidance for known issues
+        if (knownIssues.isNotEmpty()) {
+            val guidance = """
+                Known Device Issues Detected:
+                ${knownIssues.joinToString("\n") { "• $it" }}
+                
+                Recommendations:
+                • Try "Lower Audio" mode instead of "Pause" mode
+                • Ensure SpeakThat has notification access permissions
+                • Check device-specific battery optimization settings
+                • Consider disabling battery optimization for SpeakThat
+                • Some devices require manual media pause during notifications
+            """.trimIndent()
+            
+            Log.w(TAG, guidance)
+            InAppLogger.log("MediaBehavior", "Known device issues detected: ${knownIssues.joinToString(", ")}")
+        }
+    }
+    
+    private fun requestAudioFocusForVoiceCall(): Boolean {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            // Use AudioFocusRequest for API 26+ with VOICE_COMMUNICATION usage
             audioFocusRequest = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                 .setAudioAttributes(
                     android.media.AudioAttributes.Builder()
-                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .setUsage(android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION)
                         .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
@@ -1822,16 +2474,59 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 .build()
             
             val result = audioManager.requestAudioFocus(audioFocusRequest!!)
-            result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            Log.d(TAG, "Audio focus request result for VOICE_COMMUNICATION: $result")
+            InAppLogger.log("Service", "Audio focus request result for VOICE_COMMUNICATION: $result")
+            
+            when (result) {
+                android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> {
+                    Log.d(TAG, "Audio focus GRANTED for VOICE_COMMUNICATION")
+                    InAppLogger.log("Service", "Audio focus GRANTED for VOICE_COMMUNICATION")
+                    true
+                }
+                android.media.AudioManager.AUDIOFOCUS_REQUEST_FAILED -> {
+                    Log.d(TAG, "Audio focus FAILED for VOICE_COMMUNICATION")
+                    InAppLogger.log("Service", "Audio focus FAILED for VOICE_COMMUNICATION")
+                    false
+                }
+                android.media.AudioManager.AUDIOFOCUS_REQUEST_DELAYED -> {
+                    Log.d(TAG, "Audio focus DELAYED for VOICE_COMMUNICATION")
+                    InAppLogger.log("Service", "Audio focus DELAYED for VOICE_COMMUNICATION")
+                    true // Treat delayed as granted
+                }
+                else -> {
+                    Log.d(TAG, "Audio focus UNKNOWN result for VOICE_COMMUNICATION: $result")
+                    InAppLogger.log("Service", "Audio focus UNKNOWN result for VOICE_COMMUNICATION: $result")
+                    false
+                }
+            }
         } else {
-            // Use deprecated method for older versions
+            // Use deprecated method for older versions with VOICE_CALL stream
             @Suppress("DEPRECATION")
             val result = audioManager.requestAudioFocus(
                 { focusChange -> handleAudioFocusChange(focusChange) },
-                android.media.AudioManager.STREAM_MUSIC,
+                android.media.AudioManager.STREAM_VOICE_CALL,
                 android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
             )
-            result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            Log.d(TAG, "Audio focus request result for STREAM_VOICE_CALL (legacy): $result")
+            InAppLogger.log("Service", "Audio focus request result for STREAM_VOICE_CALL (legacy): $result")
+            
+            when (result) {
+                android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> {
+                    Log.d(TAG, "Audio focus GRANTED for STREAM_VOICE_CALL")
+                    InAppLogger.log("Service", "Audio focus GRANTED for STREAM_VOICE_CALL")
+                    true
+                }
+                android.media.AudioManager.AUDIOFOCUS_REQUEST_FAILED -> {
+                    Log.d(TAG, "Audio focus FAILED for STREAM_VOICE_CALL")
+                    InAppLogger.log("Service", "Audio focus FAILED for STREAM_VOICE_CALL")
+                    false
+                }
+                else -> {
+                    Log.d(TAG, "Audio focus UNKNOWN result for STREAM_VOICE_CALL: $result")
+                    InAppLogger.log("Service", "Audio focus UNKNOWN result for STREAM_VOICE_CALL: $result")
+                    false
+                }
+            }
         }
     }
     
@@ -1954,6 +2649,8 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     // Smooth ducking for gradual transitions (Android 8.0+)
     private var volumeShaper: android.media.VolumeShaper? = null // Kept for compatibility
     private var isUsingVolumeShaper = false // Actually tracks smooth ducking state
+    
+
     
     /**
      * ENHANCED DUCKING APPROACH
@@ -2315,8 +3012,22 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     private fun cleanupMediaBehavior() {
         when (mediaBehavior) {
             "pause" -> {
-                // Release audio focus to allow media to resume
-                releaseAudioFocus()
+                // Resume media sessions if we paused them via direct control
+                if (pausedMediaSessions.isNotEmpty()) {
+                    Log.d(TAG, "Pause mode cleanup: resuming media sessions")
+                    InAppLogger.log("MediaBehavior", "Resuming media sessions after TTS")
+                    resumeMediaSessions()
+                } else {
+                    // Release audio focus to allow media to resume (fallback approach)
+                    releaseAudioFocus()
+                    
+                    // If we used soft pause fallback, restore the volume
+                    if (originalMusicVolume != -1) {
+                        Log.d(TAG, "Pause mode cleanup: restoring volume after soft pause fallback")
+                        InAppLogger.log("MediaBehavior", "Restoring volume after soft pause fallback")
+                        restoreMediaVolume()
+                    }
+                }
             }
             "duck" -> {
                 // Clean up enhanced ducking first if it was used
@@ -2345,6 +3056,19 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             }
             // "ignore" and "silence" don't need cleanup
         }
+        
+        // Restore original audio mode if it was changed for speakerphone
+        if (originalAudioMode != -1) {
+            try {
+                audioManager.mode = originalAudioMode
+                Log.d(TAG, "Restored audio mode to $originalAudioMode")
+                InAppLogger.log("Service", "Restored audio mode to $originalAudioMode")
+                originalAudioMode = -1
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to restore audio mode during cleanup", e)
+                InAppLogger.logError("Service", "Failed to restore audio mode: ${e.message}")
+            }
+        }
     }
     
     /**
@@ -2354,8 +3078,22 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     private fun cleanupMediaBehaviorDelayed() {
         when (mediaBehavior) {
             "pause" -> {
-                // Release audio focus to allow media to resume
-                releaseAudioFocus()
+                // Resume media sessions if we paused them via direct control
+                if (pausedMediaSessions.isNotEmpty()) {
+                    Log.d(TAG, "Pause mode delayed cleanup: resuming media sessions")
+                    InAppLogger.log("MediaBehavior", "Resuming media sessions after TTS (delayed)")
+                    resumeMediaSessions()
+                } else {
+                    // Release audio focus to allow media to resume (fallback approach)
+                    releaseAudioFocus()
+                    
+                    // If we used soft pause fallback, restore the volume
+                    if (originalMusicVolume != -1) {
+                        Log.d(TAG, "Pause mode delayed cleanup: restoring volume after soft pause fallback")
+                        InAppLogger.log("MediaBehavior", "Restoring volume after soft pause fallback (delayed)")
+                        restoreMediaVolume()
+                    }
+                }
             }
             "duck" -> {
                 // Clean up enhanced ducking first if it was used
@@ -2389,6 +3127,19 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 }
             }
             // "ignore" and "silence" don't need cleanup
+        }
+        
+        // Restore original audio mode if it was changed for speakerphone
+        if (originalAudioMode != -1) {
+            try {
+                audioManager.mode = originalAudioMode
+                Log.d(TAG, "Restored audio mode to $originalAudioMode during delayed cleanup")
+                InAppLogger.log("Service", "Restored audio mode to $originalAudioMode during delayed cleanup")
+                originalAudioMode = -1
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to restore audio mode during delayed cleanup", e)
+                InAppLogger.logError("Service", "Failed to restore audio mode during delayed cleanup: ${e.message}")
+            }
         }
     }
 
@@ -2527,11 +3278,140 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         // Register shake listener now that we're about to speak
         registerShakeListener()
         
+        // Create volume bundle with proper volume parameters
+        val voicePrefs = getSharedPreferences("VoiceSettings", MODE_PRIVATE)
+        val ttsVolume = voicePrefs.getFloat("tts_volume", 1.0f)
+        val ttsUsageIndex = voicePrefs.getInt("audio_usage", 4) // Default to ASSISTANT index
+        val speakerphoneEnabled = voicePrefs.getBoolean("speakerphone_enabled", false)
+        val ttsUsage = when (ttsUsageIndex) {
+            0 -> android.media.AudioAttributes.USAGE_MEDIA
+            1 -> android.media.AudioAttributes.USAGE_NOTIFICATION
+            2 -> android.media.AudioAttributes.USAGE_ALARM
+            3 -> android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION
+            4 -> android.media.AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE
+            else -> android.media.AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE
+        }
+        
+        // Handle speakerphone routing for VOICE_CALL stream
+        if (ttsUsage == android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION && speakerphoneEnabled) {
+            try {
+                // Log current speakerphone state and audio mode
+                val currentSpeakerphoneState = audioManager.isSpeakerphoneOn
+                val currentAudioMode = audioManager.mode
+                InAppLogger.log("Service", "Current speakerphone state: $currentSpeakerphoneState, audio mode: $currentAudioMode")
+                
+                // Check if we already have an audio focus request that might conflict
+                if (audioFocusRequest != null) {
+                    InAppLogger.log("Service", "Warning: Existing audio focus request detected - releasing it to avoid conflicts with VOICE_CALL audio focus")
+                    // Release existing audio focus to avoid conflicts
+                    releaseAudioFocus()
+                }
+                
+                // Also check for enhanced ducking focus requests that might conflict
+                if (enhancedDuckingFocusRequest != null) {
+                    InAppLogger.log("Service", "Warning: Enhanced ducking audio focus request detected - releasing it to avoid conflicts with VOICE_CALL audio focus")
+                    try {
+                        audioManager.abandonAudioFocusRequest(enhancedDuckingFocusRequest!!)
+                        enhancedDuckingFocusRequest = null
+                        isUsingEnhancedDucking = false
+                    } catch (e: Exception) {
+                        InAppLogger.logError("Service", "Failed to release enhanced ducking audio focus: ${e.message}")
+                    }
+                }
+                
+                // Store original audio mode for restoration
+                if (originalAudioMode == -1) {
+                    originalAudioMode = currentAudioMode
+                    InAppLogger.log("Service", "Stored original audio mode: $originalAudioMode")
+                }
+                
+                // Set audio mode to MODE_IN_COMMUNICATION for proper VOICE_CALL handling
+                audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+                InAppLogger.log("Service", "Set audio mode to MODE_IN_COMMUNICATION for VOICE_CALL stream")
+                
+                // Add a longer delay before requesting audio focus to ensure audio mode is fully set
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    // Request audio focus with VOICE_COMMUNICATION usage to match TTS
+                    val focusGranted = requestAudioFocusForVoiceCall()
+                    if (focusGranted) {
+                        InAppLogger.log("Service", "Audio focus granted for VOICE_CALL, enabling speakerphone")
+                    } else {
+                        InAppLogger.log("Service", "Audio focus not granted for VOICE_CALL, but attempting speakerphone anyway")
+                    }
+                    
+                    // Enable speakerphone with proper error handling
+                    InAppLogger.log("Service", "Attempting to enable speakerphone...")
+                    audioManager.isSpeakerphoneOn = true
+                    InAppLogger.log("Service", "Called audioManager.isSpeakerphoneOn = true")
+                    
+                    // If audio focus failed, try an alternative approach for some devices
+                    if (!focusGranted) {
+                        InAppLogger.log("Service", "Audio focus failed - trying alternative speakerphone approach")
+                        // Some devices allow speakerphone control without audio focus
+                        // Try setting audio mode again and speakerphone
+                        try {
+                            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                audioManager.isSpeakerphoneOn = true
+                                InAppLogger.log("Service", "Alternative speakerphone attempt completed")
+                            }, 100) // Increased delay from 50ms to 100ms
+                        } catch (e: Exception) {
+                            InAppLogger.logError("Service", "Alternative speakerphone approach failed: ${e.message}")
+                        }
+                    }
+                    
+                    // Check immediate state
+                    val immediateState = audioManager.isSpeakerphoneOn
+                    InAppLogger.log("Service", "Immediate speakerphone state after setting: $immediateState")
+                    
+                    // Add a longer delay to allow speakerphone state to take effect
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        // Verify speakerphone was actually enabled
+                        val delayedState = audioManager.isSpeakerphoneOn
+                        InAppLogger.log("Service", "Speakerphone state after 200ms delay: $delayedState")
+                        
+                        if (delayedState) {
+                            InAppLogger.log("Service", "Speakerphone successfully enabled for VOICE_CALL stream")
+                        } else {
+                            InAppLogger.logError("Service", "Speakerphone was not enabled despite successful call")
+                            // Try to understand why - check if we have the right permissions
+                            try {
+                                val hasModifyAudioSettings = checkSelfPermission(android.Manifest.permission.MODIFY_AUDIO_SETTINGS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                InAppLogger.log("Service", "MODIFY_AUDIO_SETTINGS permission: $hasModifyAudioSettings")
+                                
+                                // Try one more time with a different approach
+                                if (!hasModifyAudioSettings) {
+                                    InAppLogger.logError("Service", "Missing MODIFY_AUDIO_SETTINGS permission - speakerphone may not work")
+                                } else {
+                                    InAppLogger.log("Service", "Permission granted but speakerphone still not working - trying final attempt")
+                                    // Try setting speakerphone again with a longer delay
+                                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                        audioManager.isSpeakerphoneOn = true
+                                        val finalState = audioManager.isSpeakerphoneOn
+                                        InAppLogger.log("Service", "Final speakerphone attempt result: $finalState")
+                                    }, 300) // 300ms delay for final attempt
+                                }
+                            } catch (e: Exception) {
+                                InAppLogger.logError("Service", "Failed to check MODIFY_AUDIO_SETTINGS permission: ${e.message}")
+                            }
+                        }
+                    }, 200) // Increased delay from 100ms to 200ms
+                }, 200) // 200ms delay before requesting audio focus to ensure audio mode is fully set
+            } catch (e: Exception) {
+                InAppLogger.logError("Service", "Failed to enable speakerphone: ${e.message}")
+            }
+        }
+        
+        // Log TTS settings for debugging
+        InAppLogger.log("Service", "TTS settings - Volume: ${ttsVolume * 100}%, Usage: $ttsUsage, Speakerphone: $speakerphoneEnabled")
+        
+        val volumeParams = VoiceSettingsActivity.createVolumeBundle(ttsVolume, ttsUsage, speakerphoneEnabled)
+        
         // Speak with queue mode FLUSH to interrupt any previous speech
-        Log.d(TAG, "Calling TTS.speak()...")
-        val speakResult = textToSpeech?.speak(speechText, TextToSpeech.QUEUE_FLUSH, null, "notification_utterance")
+        Log.d(TAG, "Calling TTS.speak() with volume: ${ttsVolume * 100}%...")
+        val speakResult = textToSpeech?.speak(speechText, TextToSpeech.QUEUE_FLUSH, volumeParams, "notification_utterance")
         Log.d(TAG, "TTS.speak() returned: $speakResult")
-        InAppLogger.log("Service", "TTS.speak() called, result: $speakResult")
+        InAppLogger.log("Service", "TTS.speak() called with volume ${ttsVolume * 100}%, result: $speakResult")
         
         // Check if speak() failed
         if (speakResult == TextToSpeech.ERROR) {
@@ -2562,16 +3442,33 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                     // Unregister shake listener since we're done speaking
                     unregisterShakeListener()
                     
+                    // Disable speakerphone if it was enabled
+                    try {
+                        if (audioManager.isSpeakerphoneOn) {
+                            audioManager.isSpeakerphoneOn = false
+                            InAppLogger.log("Service", "Speakerphone disabled after speech completion")
+                        }
+                    } catch (e: Exception) {
+                        InAppLogger.logError("Service", "Failed to disable speakerphone: ${e.message}")
+                    }
+                    
                     InAppLogger.logTTSEvent("TTS completed", "Utterance finished")
                     
-                    // Clean up media behavior effects (with delay for smooth restoration)
-                    cleanupMediaBehaviorDelayed()
+                    // Track notification read for review reminder
+                    trackNotificationReadForReview()
+                    
+                    // Clean up media behavior effects with proper delay to avoid premature volume reduction
+                    // This allows the TTS to complete naturally and gives time for any audio effects to settle
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        cleanupMediaBehaviorDelayed()
+                    }, 1000) // 1 second delay to ensure TTS is fully complete
                     
                     // Process next item in queue if any
                     processNotificationQueue()
                 }
             }
             
+            @Suppress("DEPRECATION")
             override fun onError(utteranceId: String?) {
                 if (utteranceId == "notification_utterance") {
                     Log.e(TAG, "TTS utterance error: $utteranceId")
@@ -2581,14 +3478,27 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                     hideReadingNotification()
                     
                     unregisterShakeListener()
+                    
+                    // Disable speakerphone if it was enabled
+                    try {
+                        if (audioManager.isSpeakerphoneOn) {
+                            audioManager.isSpeakerphoneOn = false
+                            InAppLogger.log("Service", "Speakerphone disabled after TTS error")
+                        }
+                    } catch (e: Exception) {
+                        InAppLogger.logError("Service", "Failed to disable speakerphone: ${e.message}")
+                    }
+                    
                     Log.e(TAG, "TTS error occurred")
                     InAppLogger.logTTSEvent("TTS error", "Utterance failed")
                     
                     // Attempt recovery for utterance errors
                     attemptTtsRecovery("Utterance error: $utteranceId")
                     
-                    // Clean up media behavior effects
-                    cleanupMediaBehavior()
+                    // Clean up media behavior effects with delay to avoid premature volume reduction
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        cleanupMediaBehavior()
+                    }, 1000) // 1 second delay to ensure cleanup doesn't interfere with any ongoing audio
                     
                     // Process next item in queue if any
                     processNotificationQueue()
@@ -3105,6 +4015,21 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping TTS", e)
             InAppLogger.logError("Notifications", "Error stopping TTS: ${e.message}")
+        }
+    }
+    
+    /**
+     * Track notification read for review reminder
+     */
+    private fun trackNotificationReadForReview() {
+        try {
+            // Track notification read directly using ReviewReminderManager
+            val reviewManager = ReviewReminderManager.getInstance(this)
+            reviewManager.incrementNotificationsRead()
+            
+            Log.d(TAG, "Notification read tracked for review reminder")
+        } catch (e: Exception) {
+            Log.d(TAG, "Could not track notification read for review reminder: ${e.message}")
         }
     }
 

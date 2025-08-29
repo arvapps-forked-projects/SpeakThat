@@ -550,7 +550,6 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="behavior_media_pause">Pause - Pause media while speaking</string>
     <string name="behavior_media_lower">Lower Audio - Duck media volume temporarily</string>
     <string name="behavior_media_silence">Silence - Don\'t speak while media is playing</string>
-    <string name="behavior_pause_warning">⚠️ Pause mode may not work on all devices due to system limitations.</string>
     <string name="behavior_ducking_volume">🔉 Ducking Volume</string>
     <string name="behavior_ducking_description">Set how quiet media should become during notifications</string>
     <string name="behavior_ducking_warning">⚠️ On some devices, lowering media volume may also lower the notification voice. If notifications are still hard to hear, try Pause mode or adjust your TTS settings.</string>
@@ -706,6 +705,22 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="behavior_deduplication_switch_label">Enable notification deduplication</string>
     <string name="behavior_deduplication_benefits">✨ Benefits:\n\n• Prevents annoying duplicate readouts\n• Saves battery by avoiding unnecessary TTS\n• Works automatically with 5-second window\n• Helps with apps that post multiple notifications</string>
     
+    <!-- Behavior Settings - Dismissal Memory -->
+    <string name="section_dismissal_memory">Dismissal Memory</string>
+    <string name="behavior_dismissal_memory_description">Remember dismissed notifications to prevent re-reading them</string>
+    <string name="behavior_dismissal_memory_recommendation">Enable if notifications get read again after dismissal</string>
+    <string name="behavior_dismissal_memory_switch_label">Enable dismissal memory</string>
+    <string name="behavior_dismissal_memory_benefits">✨ Benefits:\n\n• Prevents re-reading dismissed notifications\n• Stops notifications from being read after you dismiss them\n• Configurable memory duration (5 min to 1 hour)\n• Automatic cleanup to save memory and battery</string>
+    <string name="behavior_dismissal_memory_timeout_label">Memory duration</string>
+    <string name="behavior_dismissal_memory_timeout_description">How long to remember dismissed notifications</string>
+    <string name="behavior_dismissal_memory_timeout_5min">5 minutes</string>
+    <string name="behavior_dismissal_memory_timeout_15min">15 minutes</string>
+    <string name="behavior_dismissal_memory_timeout_30min">30 minutes</string>
+    <string name="behavior_dismissal_memory_timeout_1hour">1 hour</string>
+    <string name="behavior_dismissal_memory_info_button">ℹ️</string>
+    <string name="dialog_title_dismissal_memory">Dismissal Memory</string>
+    <string name="dialog_dismissal_memory_explanation"><![CDATA[Dismissal Memory prevents notifications from being read again after you dismiss them:<br><br><b>What it does:</b><br>When you dismiss a notification, SpeakThat remembers it for a configurable period. If the same notification content appears again during this time, it will not be read aloud.<br><br><b>When it is useful:</b><br>• <b>Dismissed notifications</b> - Prevents re-reading after you swipe them away<br>• <b>App updates</b> - Some apps re-post notifications after updates<br>• <b>System refreshes</b> - Android may re-post notifications during system events<br>• <b>Network reconnections</b> - Apps may re-post notifications when connectivity is restored<br><br><b>How it works:</b><br>• Tracks dismissed notifications by content hash<br>• Configurable memory duration (5 min to 1 hour)<br>• Automatic cleanup to prevent memory bloat<br>• Battery-friendly with efficient storage<br>• Detailed logging for troubleshooting<br><br><b>Tip:</b> Enable this if you experience notifications being read again after dismissal. Most users will benefit from this feature!]]></string>
+    
     <!-- Behavior Settings - Audio Mode -->
     <string name="section_honor_audio_mode">Honour Audio Mode</string>
     <string name="behavior_audio_mode_description">Only read notifications when your device is in Sound mode (not Silent or Vibrate)</string>
@@ -734,6 +749,13 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="label_calibrate">Calibrate</string>
     <string name="label_test_shake">Test Shake</string>
     <string name="label_test_wave">Test Wave</string>
+    
+    <!-- Test Settings Buttons -->
+    <string name="test_settings_btn_tts">Test TTS</string>
+    <string name="test_settings_btn_shake">Test Shake</string>
+    <string name="test_settings_btn_filters">Test Filters</string>
+    <string name="test_settings_btn_refresh">Refresh</string>
+    <string name="test_settings_btn_export">Export</string>
     
     <!-- Voice Settings - Additional Strings -->
     <string name="voice_help_translate_button">Help Translate SpeakThat!</string>
@@ -837,10 +859,14 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="voice_audio_output_settings">Audio Output Settings</string>
     <string name="voice_audio_output_description">Configure how notifications are played through your device\'s audio system.</string>
     <string name="voice_audio_stream_type">Audio Stream Type</string>
+    <string name="voice_stream_volume">Stream Volume</string>
+    <string name="voice_stream_volume_description">Control the volume level for the selected audio stream. This affects the device\'s volume for this stream type.</string>
     <string name="voice_content_type">Content Type</string>
     <string name="voice_content_type_description">Tells the system what kind of audio this is. Speech is recommended for notifications.</string>
     <string name="voice_audio_recommendation">Recommended: Notification + Speech</string>
-    <string name="voice_preview_actions">Preview &amp; Actions</string>
+        <string name="voice_speakerphone_option">Use Speakerphone for Voice Call</string>
+        <string name="voice_speakerphone_description">Route Voice Call audio to speaker instead of earpiece for louder volume</string>
+        <string name="voice_preview_actions">Preview &amp; Actions</string>
     <string name="voice_preview_button">Preview</string>
     <string name="voice_test_settings">Test Voice Settings</string>
     <string name="voice_reset_defaults">Reset to Defaults</string>
@@ -969,6 +995,7 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <!-- Onboarding -->
     <string name="onboarding_skip">Skip</string>
     <string name="onboarding_next">Next</string>
+    <string name="onboarding_mute_button">Mute</string>
     
     <!-- Language and Theme Onboarding -->
     <string name="onboarding_language_theme_title">Language and Theme</string>
@@ -1389,4 +1416,14 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="main_notification_permission_denied">Notification permission denied - SpeakThat notifications may not appear</string>
     <string name="main_notification_title_active">SpeakThat Active</string>
     <string name="main_notification_content_tap_settings">Tap to open SpeakThat settings</string>
+    
+    <!-- Review Reminder Strings -->
+    <string name="review_reminder_title">Enjoying SpeakThat?</string>
+    <string name="review_reminder_message">If you find SpeakThat helpful, please consider leaving a review on the Google Play Store. Your feedback helps other users discover the app and supports future development.</string>
+    <string name="review_reminder_rate_now">Rate Now</string>
+    <string name="review_reminder_later">Maybe Later</string>
+    <string name="review_reminder_never">Don\'t Ask Again</string>
+    <string name="dev_test_review_reminder">🧪 Test Review Reminder</string>
+    <string name="dev_reset_review_reminder">🔄 Reset Review Reminder</string>
+    <string name="dev_review_reminder_stats">📊 Review Reminder Stats</string>
 </resources> 

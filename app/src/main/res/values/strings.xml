@@ -97,11 +97,11 @@ Smart mode lets you choose which apps are urgent enough to interrupt (like calls
 
 <b>⏸️ Pause</b> - Pauses media completely while speaking. Good for podcasts, but interrupts music flow.
 
-<b>🔉 Lower Audio (Recommended)</b> - Temporarily reduces media volume so you can hear both. Most natural experience.
+<b>🔉 Lower Audio</b> - Temporarily reduces media volume so you can hear both.
 
 <b>🔇 Silence</b> - Doesn\'t speak while media plays. Quiet but you might miss important notifications.
 
-Lower Audio works like a car radio - it ducks the music down when speaking, then brings it back up. Perfect for music lovers who still want notifications.</string>
+Lower Audio works like a car radio - it ducks the music down when speaking, then brings it back up.</string>
     
     <string name="shake_to_stop_dialog_title">Shake to Stop Feature</string>
     <string name="shake_to_stop_dialog_message">Shake to Stop lets you instantly silence SpeakThat by shaking your device:
@@ -535,7 +535,7 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="section_notification_behavior">Notification Behaviour</string>
     <string name="section_media_behavior">Media Behaviour</string>
     <string name="recommendation_smart_mode">Most users should use: Smart Mode</string>
-    <string name="recommendation_lower_audio">Most users should use: Lower Audio</string>
+    <string name="recommendation_lower_audio">Most users should use: Pause</string>
     
     <!-- Behavior Settings Strings -->
     <string name="behavior_notification_description">Control how notifications are handled when one is already being read</string>
@@ -554,6 +554,34 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="behavior_ducking_description">Set how quiet media should become during notifications</string>
     <string name="behavior_ducking_warning">⚠️ On some devices, lowering media volume may also lower the notification voice. If notifications are still hard to hear, try Pause mode or adjust your TTS settings.</string>
     <string name="behavior_ducking_tip">Tip: Lower values make media quieter during notifications</string>
+    
+    <!-- Audio Ducking Enhanced Warning -->
+    <string name="behavior_ducking_enhanced_warning">⚠️ Lower Audio works differently across devices and Android versions. Some devices may not duck certain apps or audio streams properly.</string>
+    <string name="behavior_ducking_device_tip">💡 If ducking isn\'t working well: Try different audio streams in Voice Settings (\'Voice Call\' or \'Notification\' often work best). Avoid \'Media\' stream as it may duck your TTS along with your music.</string>
+    <string name="behavior_ducking_fallback_tip">🔧 The app automatically uses advanced system ducking when available, with smooth manual ducking as backup for maximum compatibility.</string>
+    
+    <!-- Audio Ducking Test and Fallback -->
+    <string name="behavior_ducking_test_title">Test Lower Audio Compatibility</string>
+    <string name="behavior_ducking_test_message">Testing if your device supports audio focus requests properly...</string>
+    <string name="behavior_ducking_test_success">✅ Your device supports Lower Audio well!</string>
+    <string name="behavior_ducking_test_warning">⚠️ Your device may have limited support for Lower Audio. Some apps may not respond to volume changes properly.</string>
+    <string name="behavior_ducking_test_button">Test Lower Audio</string>
+    <string name="behavior_ducking_test_success_title">Test Complete</string>
+    <string name="behavior_ducking_test_warning_title">Test Complete</string>
+    
+    <!-- Audio Ducking Fallback Options -->
+    <string name="behavior_ducking_fallback_title">Fallback Strategy</string>
+    <string name="behavior_ducking_fallback_description">Choose what happens when audio focus fails on your device</string>
+    <string name="behavior_ducking_fallback_manual">Manual Volume Control</string>
+    <string name="behavior_ducking_fallback_pause">Pause Media Instead</string>
+    <string name="behavior_ducking_fallback_manual_desc">Use manual volume adjustment (may not work on all devices)</string>
+    <string name="behavior_ducking_fallback_pause_desc">Pause media completely when audio focus fails (more reliable)</string>
+    
+    <!-- Audio Ducking Disabled Dialog -->
+    <string name="audio_ducking_disabled_title">Lower Audio Feature</string>
+    <string name="audio_ducking_disabled_message">Lower Audio works differently across devices. Some devices may not respond to volume changes properly, which could affect your TTS volume.\n\nYou can still enable this feature, but be aware it may not work consistently on all devices.</string>
+    <string name="audio_ducking_disabled_ok">Got it</string>
+    <string name="audio_ducking_disabled_enable">Enable Lower Audio</string>
     <string name="behavior_calls_title">📞 Honour Phone Calls</string>
     <string name="behavior_calls_description">Prevent notification readouts when you\'re on a phone call</string>
     <string name="behavior_calls_recommendation">Most users should: Enable this feature</string>
@@ -637,6 +665,8 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="label_2_0x">2.0x</string>
     <string name="label_0_percent">0%</string>
     <string name="label_100_percent">100%</string>
+    <string name="label_150_percent">150%</string>
+    <string name="voice_tts_volume_boost_warning">⚠️ Volume above 100% may cause audio distortion</string>
     <string name="arrow_right">›</string>
     
     <!-- Main Activity Strings -->
@@ -1315,6 +1345,8 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="dev_notification_logging_description">Log notification processing events</string>
     <string name="dev_sensitive_data_logging">Sensitive Data Logging</string>
     <string name="dev_sensitive_data_logging_description">⚠️ Log sensitive information (disabled by default)</string>
+    <string name="dev_disable_media_fallback">Disable Media Behavior Fallback</string>
+    <string name="dev_disable_media_fallback_description">Disable fallback methods for media behavior. If a feature doesn\'t work, it won\'t try alternatives. Helps isolate issues. Note: When disabled, duck mode will fall back to pause mode if ducking fails. If both fail, notifications will still be read without audio focus.</string>
     <string name="dev_live_log_display">📊 Live Log Display</string>
     <string name="dev_live_log_description">Real-time view of what\'s happening under the hood</string>
     <string name="dev_view_crash_logs">📄 View Crash Logs</string>
@@ -1325,6 +1357,17 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <!-- AboutActivity Hardcoded Strings -->
     <string name="tts_error_occurred">TTS error occurred</string>
     <string name="tts_initialization_failed">TTS initialization failed</string>
+    
+    <!-- Enhanced TTS Error Messages for Android 15+ -->
+    <string name="tts_init_failed_android15">TTS initialization failed on Android 15. This may be due to system restrictions.</string>
+    <string name="tts_init_failed_service_unavailable">TTS service is not available. Please check your TTS settings.</string>
+    <string name="tts_init_failed_permissions">TTS initialization failed due to missing permissions. Please restart the app.</string>
+    <string name="tts_init_failed_recovery_attempts">TTS recovery failed after multiple attempts. Please restart the app or check TTS settings.</string>
+    <string name="tts_init_failed_generic">TTS initialization failed. Some features may not work properly.</string>
+    <string name="tts_recovery_in_progress">Attempting to recover TTS service...</string>
+    <string name="tts_recovery_successful">TTS service recovered successfully!</string>
+    <string name="tts_troubleshooting_title">TTS Troubleshooting</string>
+    <string name="tts_troubleshooting_message">If TTS continues to fail:\n\n1. Check Settings > Accessibility > Text-to-Speech Output\n2. Ensure Google TTS is installed and set as default\n3. Restart the app\n4. Restart your device if the problem persists</string>
     
     <!-- GeneralSettingsActivity Hardcoded Strings -->
     <string name="storage_permission_required">Storage permission required for export</string>

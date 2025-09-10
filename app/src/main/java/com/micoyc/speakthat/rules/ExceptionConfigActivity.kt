@@ -303,13 +303,17 @@ class ExceptionConfigActivity : AppCompatActivity() {
         }
         
         try {
+            InAppLogger.log("ExceptionConfig", "Starting WiFi network selection")
             val wifiManager = applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as android.net.wifi.WifiManager
             
             if (!wifiManager.isWifiEnabled) {
+                InAppLogger.log("ExceptionConfig", "WiFi is disabled - showing dialog")
                 AlertDialog.Builder(this)
                     .setTitle("WiFi Disabled")
                     .setMessage("Please enable WiFi to select networks.")
-                    .setPositiveButton("OK", null)
+                    .setPositiveButton("OK") { _, _ ->
+                        InAppLogger.logUserAction("WiFi disabled dialog dismissed")
+                    }
                     .show()
                 return
             }
@@ -438,9 +442,23 @@ class ExceptionConfigActivity : AppCompatActivity() {
                     binding.textEndTime.text = String.format("%02d:%02d", endHour, endMinute)
                     endTimeMillis = endTime
                     
+                    // Convert 0-based days from stored exception to Calendar constants (1-based) for UI
+                    val convertedDays = daysOfWeek.map { day ->
+                        when (day) {
+                            0 -> Calendar.SUNDAY    // Sunday (0) -> Calendar.SUNDAY
+                            1 -> Calendar.MONDAY    // Monday (1) -> Calendar.MONDAY
+                            2 -> Calendar.TUESDAY   // Tuesday (2) -> Calendar.TUESDAY
+                            3 -> Calendar.WEDNESDAY // Wednesday (3) -> Calendar.WEDNESDAY
+                            4 -> Calendar.THURSDAY  // Thursday (4) -> Calendar.THURSDAY
+                            5 -> Calendar.FRIDAY    // Friday (5) -> Calendar.FRIDAY
+                            6 -> Calendar.SATURDAY  // Saturday (6) -> Calendar.SATURDAY
+                            else -> day
+                        }
+                    }
+                    
                     // Set selected days
                     selectedDays.clear()
-                    selectedDays.addAll(daysOfWeek)
+                    selectedDays.addAll(convertedDays)
                     
                     // Update checkboxes
                     val dayValues = arrayOf(
@@ -636,8 +654,19 @@ class ExceptionConfigActivity : AppCompatActivity() {
         val startTime = startTimeMillis ?: 0L
         val endTime = endTimeMillis ?: 0L
         
-        // Get selected days
-        val daysOfWeek = selectedDays.toSet()
+        // Convert Calendar constants (1-based) to 0-based days for RuleEvaluator
+        val daysOfWeek = selectedDays.map { day ->
+            when (day) {
+                Calendar.MONDAY -> 1    // Monday stays 1
+                Calendar.TUESDAY -> 2   // Tuesday stays 2
+                Calendar.WEDNESDAY -> 3 // Wednesday stays 3
+                Calendar.THURSDAY -> 4  // Thursday stays 4
+                Calendar.FRIDAY -> 5    // Friday stays 5
+                Calendar.SATURDAY -> 6  // Saturday stays 6
+                Calendar.SUNDAY -> 0    // Sunday becomes 0
+                else -> day
+            }
+        }.toSet()
         
         val description = if (daysOfWeek.isEmpty()) {
             "Always"

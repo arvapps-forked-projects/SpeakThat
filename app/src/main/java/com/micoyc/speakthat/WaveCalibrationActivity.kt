@@ -50,6 +50,10 @@ class WaveCalibrationActivity : AppCompatActivity(), SensorEventListener {
         super.onCreate(savedInstanceState)
         Log.d(TAG, "WaveCalibrationActivity onCreate started")
         
+        // Initialize logging
+        InAppLogger.initialize(this)
+        InAppLogger.log("WaveCalibration", "Wave calibration activity started")
+        
         // Apply saved theme FIRST before anything else
         val mainPrefs = getSharedPreferences("SpeakThatPrefs", android.content.Context.MODE_PRIVATE)
         applySavedTheme(mainPrefs)
@@ -70,7 +74,9 @@ class WaveCalibrationActivity : AppCompatActivity(), SensorEventListener {
             Log.d(TAG, "WaveCalibrationActivity onCreate completed successfully")
         } catch (e: Exception) {
             Log.e(TAG, "WaveCalibrationActivity onCreate failed", e)
+            InAppLogger.logError("WaveCalibration", "Activity creation failed: ${e.message}")
             Toast.makeText(this, "Failed to initialize calibration: ${e.message}", Toast.LENGTH_LONG).show()
+            InAppLogger.logUserAction("Wave calibration initialization failed - user feedback shown")
             finish()
         }
     }
@@ -87,11 +93,14 @@ class WaveCalibrationActivity : AppCompatActivity(), SensorEventListener {
     
     private fun setupSensor() {
         Log.d(TAG, "Setting up proximity sensor")
+        InAppLogger.log("WaveCalibration", "Setting up proximity sensor")
+        
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         proximitySensor = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY)
         
         if (proximitySensor == null) {
             Log.e(TAG, "No proximity sensor found on this device")
+            InAppLogger.logError("WaveCalibration", "No proximity sensor found on this device")
             showError("No proximity sensor found on this device")
             return
         }
@@ -99,22 +108,28 @@ class WaveCalibrationActivity : AppCompatActivity(), SensorEventListener {
         Log.d(TAG, "Proximity sensor found: ${proximitySensor?.name}")
         Log.d(TAG, "Max range: ${proximitySensor?.maximumRange}cm")
         Log.d(TAG, "Sensor setup completed successfully")
+        
+        InAppLogger.log("WaveCalibration", "Proximity sensor found: ${proximitySensor?.name}, max range: ${proximitySensor?.maximumRange}cm")
     }
     
     private fun setupUI() {
         binding.btnStartCalibration.setOnClickListener {
+            InAppLogger.logUserAction("Wave calibration start button clicked")
             startCalibration()
         }
         
         binding.btnRecalibrate.setOnClickListener {
+            InAppLogger.logUserAction("Wave calibration recalibrate button clicked")
             startCalibration()
         }
         
         binding.btnConfirm.setOnClickListener {
+            InAppLogger.logUserAction("Wave calibration confirm button clicked")
             saveCalibrationAndFinish()
         }
         
         binding.btnDisable.setOnClickListener {
+            InAppLogger.logUserAction("Wave calibration disable button clicked")
             disableWaveToStop()
         }
         
@@ -124,6 +139,7 @@ class WaveCalibrationActivity : AppCompatActivity(), SensorEventListener {
     
     private fun startCalibration() {
         Log.d(TAG, "startCalibration called")
+        InAppLogger.log("WaveCalibration", "Starting wave calibration process")
         
         // Cancel any existing calibration job
         calibrationJob?.cancel()
@@ -138,6 +154,7 @@ class WaveCalibrationActivity : AppCompatActivity(), SensorEventListener {
         
         if (proximitySensor == null) {
             Log.e(TAG, "Proximity sensor not available for calibration")
+            InAppLogger.logError("WaveCalibration", "Proximity sensor not available for calibration")
             showError("Proximity sensor not available")
             return
         }
@@ -164,8 +181,10 @@ class WaveCalibrationActivity : AppCompatActivity(), SensorEventListener {
         
         if (success) {
             Log.d(TAG, "Sensor listener registered successfully for calibration")
+            InAppLogger.log("WaveCalibration", "Sensor listener registered successfully for calibration")
         } else {
             Log.e(TAG, "Failed to register sensor listener after $maxAttempts attempts")
+            InAppLogger.logError("WaveCalibration", "Failed to register sensor listener after $maxAttempts attempts")
             showError("Failed to register proximity sensor listener after multiple attempts")
             return
         }
@@ -211,6 +230,7 @@ class WaveCalibrationActivity : AppCompatActivity(), SensorEventListener {
     
     private fun finishCalibration() {
         Log.d(TAG, "finishCalibration called - readings count: ${readings.size}")
+        InAppLogger.log("WaveCalibration", "Calibration finished - readings count: ${readings.size}")
         isCalibrating = false
         
         // Properly unregister sensor listener
@@ -229,17 +249,22 @@ class WaveCalibrationActivity : AppCompatActivity(), SensorEventListener {
             Log.d(TAG, "Calibration complete - Max: ${maxDistance}cm, Threshold: ${calculatedThreshold}cm")
             Log.d(TAG, "Readings summary - Min: ${readings.minOrNull()}cm, Max: ${maxDistance}cm, Distinct: ${readings.distinct().size}")
             
+            InAppLogger.log("WaveCalibration", "Calibration complete - Max: ${maxDistance}cm, Threshold: ${calculatedThreshold}cm, Distinct values: ${readings.distinct().size}")
+            
             val validationError = validateCalibrationData()
             if (validationError == null) {
                 Log.d(TAG, "Calibration validation passed - showing test mode")
+                InAppLogger.log("WaveCalibration", "Calibration validation passed - showing test mode")
                 showTestMode()
             } else {
                 Log.w(TAG, "Calibration validation failed: $validationError")
+                InAppLogger.logError("WaveCalibration", "Calibration validation failed: $validationError")
                 showCalibrationFailed(validationError)
             }
         } else {
             val errorMessage = "No sensor readings collected during calibration. Please ensure your proximity sensor is working and try again."
             Log.e(TAG, errorMessage)
+            InAppLogger.logError("WaveCalibration", "No sensor readings collected during calibration")
             showCalibrationFailed(errorMessage)
         }
     }
@@ -349,10 +374,12 @@ class WaveCalibrationActivity : AppCompatActivity(), SensorEventListener {
         binding.btnDisable.visibility = View.VISIBLE
 
         Log.w(TAG, "Calibration failed: $errorMessage")
+        InAppLogger.logError("WaveCalibration", "Calibration failed: $errorMessage")
     }
     
     private fun saveCalibrationAndFinish() {
         Log.d(TAG, "saveCalibrationAndFinish called")
+        InAppLogger.log("WaveCalibration", "Saving calibration data and finishing")
         
         val sharedPreferences = getSharedPreferences("BehaviorSettings", MODE_PRIVATE)
         val editor = sharedPreferences.edit()
@@ -367,7 +394,10 @@ class WaveCalibrationActivity : AppCompatActivity(), SensorEventListener {
         Log.d(TAG, "Calibration saved - Max: ${maxDistance}cm")
         Log.d(TAG, "About to set result RESULT_OK and finish activity")
         
+        InAppLogger.log("WaveCalibration", "Calibration saved successfully - Max: ${maxDistance}cm, Threshold: ${calculatedThreshold}cm")
+        
         Toast.makeText(this, "Wave detection calibrated successfully!", Toast.LENGTH_SHORT).show()
+        InAppLogger.logUserAction("Wave calibration completed successfully - user feedback shown")
         setResult(RESULT_OK)
         
         // Add a small delay to ensure the result is set before finishing
@@ -386,6 +416,7 @@ class WaveCalibrationActivity : AppCompatActivity(), SensorEventListener {
         Log.d(TAG, "Wave-to-stop disabled by user")
         
         Toast.makeText(this, "Wave-to-stop disabled", Toast.LENGTH_SHORT).show()
+        InAppLogger.logUserAction("Wave-to-stop disabled - user feedback shown")
         setResult(RESULT_CANCELED)
         finish()
     }
@@ -425,6 +456,11 @@ class WaveCalibrationActivity : AppCompatActivity(), SensorEventListener {
                 }
                 
                 Log.d(TAG, "Calibration reading #${readings.size}: ${proximityValue}cm (max: ${currentMax}cm)")
+                
+                // Log every 10th reading to InAppLogger to avoid spam
+                if (readings.size % 10 == 0) {
+                    InAppLogger.log("WaveCalibration", "Calibration progress: ${readings.size} readings, current: ${proximityValue}cm, max: ${currentMax}cm, distinct: $distinctCount")
+                }
             } else if (isTesting) {
                 // Show live feedback during testing
                 val isWaveDetected = if (proximityValue == 0f) {
@@ -452,6 +488,7 @@ class WaveCalibrationActivity : AppCompatActivity(), SensorEventListener {
     
     override fun onDestroy() {
         super.onDestroy()
+        InAppLogger.log("WaveCalibration", "Wave calibration activity destroyed")
         calibrationJob?.cancel()
         sensorManager.unregisterListener(this)
     }

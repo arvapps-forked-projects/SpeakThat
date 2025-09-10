@@ -216,6 +216,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         Log.d(TAG, "About to check for updates automatically")
         checkForUpdatesIfEnabled()
         
+        // Check for crash logs and notify user if available
+        checkForCrashLogs()
+        
         // Initialize review reminder and track app session
         initializeReviewReminder()
     }
@@ -641,17 +644,99 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
             InAppLogger.logTTSEvent("TTS initialized successfully", "MainActivity")
             Log.d(TAG, "TextToSpeech initialized successfully for MainActivity")
         } else {
-            Log.e(TAG, "TextToSpeech initialization failed with status: $status")
-            InAppLogger.logTTSEvent("TTS initialization failed", "Status: $status")
+            val errorMessage = getTtsErrorMessage(status)
+            Log.e(TAG, "TextToSpeech initialization failed with status: $status - $errorMessage")
+            InAppLogger.logTTSEvent("TTS initialization failed", "Status: $status - $errorMessage")
             
             // Log device info for debugging
             val deviceInfo = "Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, " +
                            "Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})"
             Log.e(TAG, "Device info: $deviceInfo")
-            InAppLogger.logError("MainActivity", "TTS init failed on $deviceInfo")
+            InAppLogger.logError("MainActivity", "TTS init failed on $deviceInfo - $errorMessage")
             
-            // Show user feedback
-            Toast.makeText(this, getString(R.string.main_tts_init_failed), Toast.LENGTH_LONG).show()
+            // Show appropriate user feedback based on error type
+            showTtsErrorFeedback(status, errorMessage)
+        }
+    }
+    
+    /**
+     * Get a human-readable error message for TTS initialization status codes
+     */
+    private fun getTtsErrorMessage(status: Int): String {
+        return when (status) {
+            TextToSpeech.ERROR -> "TTS engine error"
+            TextToSpeech.ERROR_NOT_INSTALLED_YET -> "TTS engine not installed"
+            TextToSpeech.ERROR_OUTPUT -> "TTS output error"
+            TextToSpeech.ERROR_SERVICE -> "TTS service error"
+            TextToSpeech.ERROR_SYNTHESIS -> "TTS synthesis error"
+            TextToSpeech.ERROR_INVALID_REQUEST -> "Invalid TTS request"
+            TextToSpeech.ERROR_NETWORK -> "TTS network error"
+            TextToSpeech.ERROR_NETWORK_TIMEOUT -> "TTS network timeout"
+            -1 -> if (android.os.Build.VERSION.SDK_INT >= 35) {
+                "TTS service not accessible (Android 15 restriction)"
+            } else {
+                "TTS service not accessible"
+            }
+            else -> "Unknown TTS error (status: $status)"
+        }
+    }
+    
+    /**
+     * Show appropriate user feedback based on TTS error type
+     */
+    private fun showTtsErrorFeedback(status: Int, @Suppress("UNUSED_PARAMETER") errorMessage: String) {
+        val message = when (status) {
+            -1 -> if (android.os.Build.VERSION.SDK_INT >= 35) {
+                getString(R.string.tts_init_failed_android15)
+            } else {
+                getString(R.string.tts_init_failed_service_unavailable)
+            }
+            TextToSpeech.ERROR_NOT_INSTALLED_YET -> getString(R.string.tts_init_failed_service_unavailable)
+            else -> getString(R.string.tts_init_failed_generic)
+        }
+        
+        // Show toast with error message
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        InAppLogger.logUserAction("TTS error toast shown: $message")
+        
+        // For Android 15 and critical errors, show a dialog with troubleshooting info
+        if (android.os.Build.VERSION.SDK_INT >= 35 || status == -1 || status == TextToSpeech.ERROR_NOT_INSTALLED_YET) {
+            showTtsTroubleshootingDialog()
+        }
+    }
+    
+    /**
+     * Show a dialog with TTS troubleshooting information
+     */
+    private fun showTtsTroubleshootingDialog() {
+        try {
+            android.app.AlertDialog.Builder(this)
+                .setTitle(getString(R.string.tts_troubleshooting_title))
+                .setMessage(getString(R.string.tts_troubleshooting_message))
+                .setPositiveButton("OK") { dialog, _ -> 
+                    InAppLogger.logUserAction("TTS troubleshooting dialog dismissed")
+                    dialog.dismiss() 
+                }
+                .setNegativeButton("Settings") { _, _ ->
+                    InAppLogger.logUserAction("TTS troubleshooting dialog - opening accessibility settings")
+                    // Open TTS settings
+                    try {
+                        val intent = android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Could not open accessibility settings", e)
+                        InAppLogger.logError("MainActivity", "Could not open accessibility settings: ${e.message}")
+                        Toast.makeText(this, "Could not open settings", Toast.LENGTH_SHORT).show()
+                        InAppLogger.logUserAction("TTS settings access failed - user feedback shown")
+                    }
+                }
+                .show()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing TTS troubleshooting dialog", e)
+            InAppLogger.logError("MainActivity", "Error showing TTS troubleshooting dialog: ${e.message}")
+            // Fallback to just showing the toast
+            Toast.makeText(this, getString(R.string.tts_troubleshooting_message), Toast.LENGTH_LONG).show()
+            InAppLogger.logUserAction("TTS troubleshooting dialog fallback - toast shown")
         }
     }
     
@@ -680,6 +765,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
             
             // Show user feedback
             Toast.makeText(this, getString(R.string.main_tts_not_ready), Toast.LENGTH_SHORT).show()
+            InAppLogger.logUserAction("TTS not ready toast shown")
             return
         }
         
@@ -802,6 +888,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
                 Log.e(TAG, "TTS speak() returned ERROR")
                 InAppLogger.logError("MainActivity", "TTS speak() failed")
                 Toast.makeText(this, getString(R.string.main_tts_playback_failed), Toast.LENGTH_SHORT).show()
+                InAppLogger.logUserAction("TTS playback failed toast shown")
             }
         } else {
             Log.e(TAG, "Cannot speak text - TTS not ready. Initialized: $isTtsInitialized, TTS: ${textToSpeech != null}")
@@ -1125,16 +1212,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
                 updateInfo.releaseDate
             ))
             .setPositiveButton(getString(R.string.download_update)) { _, _ ->
+                InAppLogger.logUserAction("Update dialog - download update button clicked")
                 // Start update activity using wrapper
                 UpdateFeature.startUpdateActivity(this, forceCheck = true)
             }
-            .setNegativeButton(getString(R.string.cancel), null)
+            .setNegativeButton(getString(R.string.cancel)) { _, _ ->
+                InAppLogger.logUserAction("Update dialog - cancel button clicked")
+            }
             .setNeutralButton(getString(R.string.view_release_notes)) { _, _ ->
+                InAppLogger.logUserAction("Update dialog - view release notes button clicked")
                 // Show release notes
                 AlertDialog.Builder(this)
                     .setTitle(getString(R.string.release_notes))
                     .setMessage(updateInfo.releaseNotes.ifEmpty { getString(R.string.no_release_notes) })
-                    .setPositiveButton(getString(R.string.ok), null)
+                    .setPositiveButton(getString(R.string.ok)) { _, _ ->
+                        InAppLogger.logUserAction("Release notes dialog dismissed")
+                    }
                     .show()
             }
             .show()
@@ -1149,6 +1242,124 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
             bytes < 1024 * 1024 -> "${bytes / 1024} KB"
             bytes < 1024 * 1024 * 1024 -> "${bytes / (1024 * 1024)} MB"
             else -> "${bytes / (1024 * 1024 * 1024)} GB"
+        }
+    }
+    
+    /**
+     * Check for crash logs and notify user if available
+     */
+    private fun checkForCrashLogs() {
+        try {
+            if (InAppLogger.hasExternalCrashLogs()) {
+                val crashLogs = InAppLogger.getExternalCrashLogs()
+                if (crashLogs.isNotEmpty()) {
+                    val latestCrash = crashLogs.first()
+                    val crashTime = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(latestCrash.lastModified()))
+                    
+                    // Show notification about crash logs
+                    showCrashLogNotification(crashLogs.size, crashTime)
+                    
+                    InAppLogger.log("CrashLogs", "Found ${crashLogs.size} crash log(s), showing notification")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking for crash logs", e)
+            InAppLogger.logError("CrashLogs", "Error checking for crash logs: ${e.message}")
+        }
+    }
+    
+    /**
+     * Show notification about available crash logs
+     */
+    private fun showCrashLogNotification(crashCount: Int, latestCrashTime: String) {
+        try {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            
+            // Check notification permission for Android 13+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    Log.w(TAG, "POST_NOTIFICATIONS permission not granted - cannot show crash log notification")
+                    return
+                }
+            }
+            
+            // Create notification channel for Android O+
+            createCrashLogNotificationChannel()
+            
+            // Create intent for opening development settings
+            val openDevSettingsIntent = Intent(this, DevelopmentSettingsActivity::class.java)
+            val openDevSettingsPendingIntent = PendingIntent.getActivity(
+                this, 0, openDevSettingsIntent, 
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            // Create intent for opening file manager to crash logs directory
+            val crashLogsDir = InAppLogger.getExternalCrashLogsDirectory()
+            val openFileManagerIntent = Intent(Intent.ACTION_VIEW).apply {
+                if (crashLogsDir != null) {
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        this@MainActivity,
+                        packageName + ".fileprovider",
+                        java.io.File(crashLogsDir)
+                    )
+                    setDataAndType(uri, "resource/folder")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            }
+            val openFileManagerPendingIntent = PendingIntent.getActivity(
+                this, 1, openFileManagerIntent, 
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            val notification = androidx.core.app.NotificationCompat.Builder(this, "SpeakThat_CrashLogs_Channel")
+                .setContentTitle("SpeakThat! Crash Detected")
+                .setContentText("$crashCount crash log(s) found. Latest: $latestCrashTime")
+                .setSmallIcon(R.drawable.speakthaticon)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(openDevSettingsPendingIntent)
+                .setAutoCancel(true)
+                .addAction(
+                    R.drawable.speakthaticon,
+                    "View Logs",
+                    openDevSettingsPendingIntent
+                )
+                .addAction(
+                    R.drawable.speakthaticon,
+                    "Open Folder",
+                    openFileManagerPendingIntent
+                )
+                .build()
+            
+            // Show notification with unique ID
+            notificationManager.notify(2001, notification)
+            Log.d(TAG, "Crash log notification shown")
+            InAppLogger.log("CrashLogs", "Crash log notification shown for $crashCount crash(es)")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing crash log notification", e)
+            InAppLogger.logError("CrashLogs", "Error showing crash log notification: ${e.message}")
+        }
+    }
+    
+    /**
+     * Create notification channel for crash log notifications
+     */
+    private fun createCrashLogNotificationChannel() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            
+            val channel = android.app.NotificationChannel(
+                "SpeakThat_CrashLogs_Channel",
+                "SpeakThat! Crash Logs",
+                android.app.NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notifications about SpeakThat! crash logs"
+                enableLights(true)
+                lightColor = android.graphics.Color.RED
+                enableVibration(true)
+            }
+            
+            notificationManager.createNotificationChannel(channel)
         }
     }
     
@@ -1258,7 +1469,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
             }
             .setNeutralButton(getString(R.string.button_later)) { _, _ ->
                 // Do nothing - user can manually restart later
+                InAppLogger.logUserAction("Language change dialog - later button clicked")
                 Toast.makeText(this, getString(R.string.toast_language_manual_restart), Toast.LENGTH_SHORT).show()
+                InAppLogger.logUserAction("Language manual restart toast shown")
             }
             .setCancelable(false)
             .show()
@@ -1277,6 +1490,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
             
             // Show a brief message
             Toast.makeText(this, getString(R.string.toast_language_restarting), Toast.LENGTH_SHORT).show()
+            InAppLogger.logUserAction("Language restarting toast shown")
             
             // Start the new instance and finish current one
             startActivity(intent)
@@ -1302,10 +1516,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
                     Log.d(TAG, "POST_NOTIFICATIONS permission granted")
                     InAppLogger.log("Permissions", "POST_NOTIFICATIONS permission granted")
                     Toast.makeText(this, getString(R.string.main_notification_permission_granted), Toast.LENGTH_SHORT).show()
+                    InAppLogger.logUserAction("Notification permission granted toast shown")
                 } else {
                     Log.w(TAG, "POST_NOTIFICATIONS permission denied")
                     InAppLogger.log("Permissions", "POST_NOTIFICATIONS permission denied")
                     Toast.makeText(this, getString(R.string.main_notification_permission_denied), Toast.LENGTH_LONG).show()
+                    InAppLogger.logUserAction("Notification permission denied toast shown")
                 }
             }
         }

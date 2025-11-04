@@ -41,17 +41,6 @@ object SettingsDatabase {
                 navigationAction = { context.startActivity(Intent(context, GeneralSettingsActivity::class.java)) }
             ),
             SettingsItem(
-                id = "aggressive_processing",
-                title = "Aggressive Background Processing",
-                description = "Use more aggressive background processing for better reliability",
-                category = "general",
-                categoryTitle = "General Settings",
-                categoryIcon = "⚙️",
-                settingType = SettingType.SWITCH,
-                searchKeywords = listOf("background", "processing", "aggressive", "reliability", "performance"),
-                navigationAction = { context.startActivity(Intent(context, GeneralSettingsActivity::class.java)) }
-            ),
-            SettingsItem(
                 id = "service_restart_policy",
                 title = "Service Restart Policy",
                 description = "Choose when to restart the notification service",
@@ -317,6 +306,17 @@ object SettingsDatabase {
                 categoryIcon = "🎙️",
                 settingType = SettingType.BUTTON,
                 searchKeywords = listOf("preview", "test", "voice", "speech", "sample", "demo"),
+                navigationAction = { context.startActivity(Intent(context, VoiceSettingsActivity::class.java)) }
+            ),
+            SettingsItem(
+                id = "tts_engine",
+                title = "TTS Engine",
+                description = "Choose which text-to-speech engine to use",
+                category = "voice",
+                categoryTitle = "Voice Settings",
+                categoryIcon = "🎙️",
+                settingType = SettingType.SPINNER,
+                searchKeywords = listOf("engine", "tts", "voice", "speech", "google", "samsung", "text to speech"),
                 navigationAction = { context.startActivity(Intent(context, VoiceSettingsActivity::class.java)) }
             ),
 

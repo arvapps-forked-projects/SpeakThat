@@ -1074,6 +1074,37 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="rules_description">Create powerful rules to control when SpeakThat reads notifications based on your device state, time, and connections.</string>
     <string name="rules_enable">Enable Rules</string>
     <string name="rules_create_new">Create New Rule</string>
+    <string name="rules_mode_off_title">Off</string>
+    <string name="rules_mode_off_description">No automation, SpeakThat! remains permanently active.</string>
+    <string name="rules_mode_conditional_title">Conditional Rules</string>
+    <string name="rules_mode_conditional_description">Use the internal automation in SpeakThat! for Bluetooth device detection, time schedules, etc.</string>
+    <string name="rules_mode_external_title">External Automation</string>
+    <string name="rules_mode_external_description">Enable intents for third-party automation tools such as MacroDroid or Tasker.</string>
+    <string name="rules_mode_info_title">Automation Modes</string>
+    <string name="rules_mode_info_description">SpeakThat can only use one automation source at a time.\n\nOff - Keep automation disabled so SpeakThat remains active until you toggle the master switch manually.\n\nConditional Rules - Use the built-in triggers in SpeakThat! for Bluetooth devices, schedules, and filters.\n\nExternal Automation - Enable broadcast intents for automation tools (e.g., MacroDroid, Tasker) to control SpeakThat directly.</string>
+    <string name="rules_mode_info_content_description">Automation mode information</string>
+    <string name="rules_mode_off_empty_title">Automation disabled</string>
+    <string name="rules_mode_off_empty_description">Select Conditional Rules to create automations, or leave this mode selected to keep SpeakThat always active.</string>
+    <string name="rules_mode_external_empty_title">Controlled by automation</string>
+    <string name="rules_mode_external_empty_description">SpeakThat is waiting for automation intents. Switch back to Conditional Rules to edit internal automations.</string>
+    <string name="rules_quick_strings_title" translatable="false">Automation intent shortcuts</string>
+    <string name="rules_quick_strings_note" translatable="false">Tap a row to copy the value.</string>
+    <string name="rules_quick_strings_action_enable_label" translatable="false">Enable action</string>
+    <string name="rules_quick_strings_action_disable_label" translatable="false">Disable action</string>
+    <string name="rules_quick_strings_receiver_label" translatable="false">Receiver class</string>
+    <string name="rules_quick_strings_package_label" translatable="false">Package name</string>
+    <string name="rules_quick_strings_copied" translatable="false">%1$s copied to clipboard</string>
+    <string name="rules_quick_strings_action_enable_value" translatable="false">com.micoyc.speakthat.intent.ACTION_ENABLE_SPEAKTHAT</string>
+    <string name="rules_quick_strings_action_disable_value" translatable="false">com.micoyc.speakthat.intent.ACTION_DISABLE_SPEAKTHAT</string>
+    <string name="rules_quick_strings_receiver_value" translatable="false">com.micoyc.speakthat.automation.AutomationBroadcastReceiver</string>
+    <string name="rules_quick_strings_package_value" translatable="false">com.micoyc.speakthat</string>
+    <string name="rules_quick_strings_flags_title" translatable="false">Recommended flags &amp; extras</string>
+    <string name="rules_quick_strings_flags_description" translatable="false">Enable the flag \"INCLUDE_STOPPED_PACKAGES\\" so intents still reach SpeakThat! after reboot, and use the flag \"RECEIVER_FOREGROUND\" if your automation app supports it for faster delivery.</string>
+    <string name="rules_quick_strings_source_hint" translatable="false">Optional: an \"Extra\" slot can be used to identify the automation in debug logs. Set the parameter name to \"source\", and the value to a key identifier of your choosing (e.g. \"enable-speakthat-when-i-get-home\") so you can tell which profile toggled the master switch.</string>
+    <string name="master_switch_enabled_toast" translatable="false">SpeakThat enabled - notifications will be read</string>
+    <string name="master_switch_disabled_toast" translatable="false">SpeakThat disabled - notifications will be silent</string>
+    <string name="master_switch_enabled_toast_automation" translatable="false">SpeakThat enabled via automation intent</string>
+    <string name="master_switch_disabled_toast_automation" translatable="false">SpeakThat disabled via automation intent</string>
     
     <!-- Onboarding -->
     <string name="onboarding_skip">Skip</string>
@@ -1567,9 +1598,169 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="diagnostics_output_stream_err">Output stream is blocked</string>
     <string name="diagnostics_output_stream_dash">Cannot determine output stream status</string>
     <string name="diagnostics_should_read_yes">All checks passed - notifications should be read</string>
+    <string name="diagnostics_should_read_yes_conditional">All checks passed - notifications should be read (Conditional Rules active)</string>
+    <string name="diagnostics_should_read_yes_external">All checks passed - notifications are controlled by external automation</string>
     <string name="diagnostics_should_read_no">Notifications are blocked by rules or settings</string>
     <string name="diagnostics_should_read_err">Cannot determine if notifications should be read</string>
     <string name="diagnostics_tts_engine_ok">TTS engine is working</string>
     <string name="diagnostics_tts_engine_err">TTS engine failed</string>
     <string name="diagnostics_tts_engine_dash">Using default TTS engine</string>
+
+    <!-- Listener Health -->
+    <string name="listener_warning_title">Notification listener needs attention</string>
+    <string name="listener_warning_body_disconnected">Android disconnected the notification service %1$s ago. Tap Retry to ask the system to reconnect. If this keeps happening, disable battery optimization in General Settings.</string>
+    <string name="listener_warning_body_stale">Notification service hasn\'t connected in %1$s. Tap Retry to wake it up, then review battery optimization in General Settings if the issue persists.</string>
+    <string name="listener_warning_time_unknown">recently</string>
+    <string name="listener_warning_retry_in_progress">Rebind request sent</string>
+    <string name="listener_warning_retry_denied">Wait a moment before trying again</string>
+    <string name="listener_warning_last_attempt">Last reconnect attempt: %1$s</string>
+    <string name="dev_listener_health_title">Notification listener health</string>
+    <string name="listener_status_permission_missing">Notification access missing - grant permission to resume</string>
+    <string name="listener_status_disconnected">Android disconnected the listener %1$s ago</string>
+    <string name="listener_status_idle">No listener activity for %1$s</string>
+    <string name="listener_status_ok">All clear - last activity %1$s ago</string>
+    <string name="listener_health_last_activity">Last activity: %1$s</string>
+    <string name="listener_health_last_connect">Last connect: %1$s</string>
+    <string name="listener_health_last_disconnect">Last disconnect: %1$s</string>
+    <string name="listener_health_last_heartbeat">Last heartbeat: %1$s</string>
+    <string name="listener_health_last_rebind_success">Last successful rebind: %1$s</string>
+    
+    <!-- SelfTest System -->
+    <string name="selftest_title">SelfTest</string>
+    <string name="selftest_subtitle">Automated diagnostic test to identify issues</string>
+    <string name="selftest_yes">Yes</string>
+    <string name="selftest_no">No</string>
+    <string name="selftest_export_logs">Export Debug Logs</string>
+    <string name="selftest_share_report">Share Bug Report</string>
+    <string name="selftest_try_again">Try Again</string>
+    <string name="selftest_monitoring_message">Monitoring for test notification...</string>
+    
+    <!-- SelfTest Steps -->
+    <string name="selftest_step1_title">NotificationListener Permission</string>
+    <string name="selftest_step1_pass">Permission enabled</string>
+    <string name="selftest_step1_fail">Permission not enabled - please enable in settings</string>
+    <string name="selftest_step1_rebinding">Permission enabled - reconnecting notification listener...</string>
+    
+    <string name="selftest_step2_title">POST_NOTIFICATIONS Permission</string>
+    <string name="selftest_step2_pass">Permission granted</string>
+    <string name="selftest_step2_fail">Permission denied</string>
+    <string name="selftest_step2_requesting">Requesting permission...</string>
+    <string name="selftest_step2_not_needed">Not required on Android &lt; 13</string>
+    
+    <string name="selftest_step3_title">Master Switch</string>
+    <string name="selftest_step3_pass">Enabled</string>
+    <string name="selftest_step3_fail">Disabled - please enable the master switch</string>
+    
+    <string name="selftest_step4_title">TTS Initialization</string>
+    <string name="selftest_step4_pass">TTS ready</string>
+    <string name="selftest_step4_fail">TTS initialization failed</string>
+    
+    <string name="selftest_step5_title">Volume Check</string>
+    <string name="selftest_step5_pass">Volume at %d%%</string>
+    <string name="selftest_step5_fail">Volume is muted</string>
+    
+    <string name="selftest_step6_title">Audio Mode</string>
+    <string name="selftest_step6_pass">Audio mode: %s</string>
+    <string name="selftest_step6_fail">Device is in %s mode</string>
+    
+    <string name="selftest_step7_title">Rules System</string>
+    <string name="selftest_step7_pass_disabled">Rules disabled</string>
+    <string name="selftest_step7_warning">Rules enabled - may block notifications</string>
+    <string name="selftest_step7_external">External automation controls SpeakThat</string>
+    
+    <string name="selftest_step8_title">Post Test Notification</string>
+    <string name="selftest_step8_posting">Posting test notification...</string>
+    <string name="selftest_step8_posted">Test notification posted</string>
+    <string name="selftest_step8_fail">Failed to post notification</string>
+    
+    <string name="selftest_step9_title">Monitor for Response</string>
+    <string name="selftest_step9_monitoring">Monitoring logs...</string>
+    <string name="selftest_step9_not_received">Notification not received by service</string>
+    <string name="selftest_step9_received_not_read">Notification received but not read</string>
+    <string name="selftest_step9_success">Notification read successfully</string>
+    <string name="selftest_step9_rebinding">Listener disconnected - retrying automatically...</string>
+    
+    <!-- SelfTest Error Codes -->
+    <string name="selftest_error_code">Error Code: %s</string>
+    
+    <string name="selftest_success_title">Test Passed!</string>
+    <string name="selftest_success_description">SpeakThat is working correctly. Notifications are being received and read aloud.</string>
+    
+    <string name="selftest_error_0400_title">Notification Not Posted</string>
+    <string name="selftest_error_0400_description">The test notification could not be posted. This is likely a permission issue. Please ensure the POST_NOTIFICATIONS permission is granted.</string>
+    
+    <string name="selftest_error_0404_title">Service Not Receiving Notifications</string>
+    <string name="selftest_error_0404_description">The notification appeared on your screen, but the NotificationListener service did not receive it. Try toggling the notification permission off and on in system settings.</string>
+    
+    <string name="selftest_error_0410_title">Master Switch Disabled</string>
+    <string name="selftest_error_0410_description">The SpeakThat master switch is disabled. Please enable it in the main screen to allow notifications to be read.</string>
+    
+    <string name="selftest_error_0411_title">Audio Mode Blocking</string>
+    <string name="selftest_error_0411_description">Your device is in Silent or Vibrate mode, and you have \"Honor Audio Mode\" enabled. Notifications will not be read in this mode. You can disable \"Honor Audio Mode\" in Voice Settings.</string>
+    
+    <string name="selftest_error_0412_title">Do Not Disturb Active</string>
+    <string name="selftest_error_0412_description">Do Not Disturb mode is active, and you have \"Honor Do Not Disturb\" enabled. Notifications will not be read in this mode. You can disable \"Honor Do Not Disturb\" in Voice Settings.</string>
+    
+    <string name="selftest_error_0413_title">Blocked by Rules</string>
+    <string name="selftest_error_0413_description">The notification was blocked by your rules system. Check your rules configuration to ensure they\'re not blocking all notifications.</string>
+    
+    <string name="selftest_error_0414_title">Blocked by Filtering</string>
+    <string name="selftest_error_0414_description">The notification was blocked by content filtering. Check your app filters, word filters, or other filtering settings.</string>
+    
+    <string name="selftest_error_0415_title">TTS Not Initialized</string>
+    <string name="selftest_error_0415_description">Text-to-Speech is not initialized. Try restarting the app or checking your TTS engine settings.</string>
+    
+    <string name="selftest_error_0420_title">Unknown Blocking Reason</string>
+    <string name="selftest_error_0420_description">The notification was received but not read for an unknown reason. Please export the debug logs and report this issue.</string>
+    
+    <string name="selftest_error_0440_title">Audio Output Issue</string>
+    <string name="selftest_error_0440_description">TTS completed successfully, but you didn\'t hear it. Check your volume settings, audio output device (Bluetooth headphones, etc.), or try a different audio stream in Voice Settings.</string>
+    
+    <string name="selftest_error_unknown_title">Unknown Error</string>
+    <string name="selftest_error_unknown_description">An unexpected error occurred during the test.</string>
+    
+    <!-- SelfTest User Questions -->
+    <string name="selftest_question_notification_appeared">Did you see the test notification appear on your screen?</string>
+    <string name="selftest_question_heard_notification">Did you hear SpeakThat read the notification aloud?</string>
+    
+    <!-- SelfTest Log Export -->
+    <string name="selftest_logs_exported">Debug logs exported to: %s</string>
+    <string name="selftest_logs_export_failed">Failed to export debug logs</string>
+    
+    <!-- Statistics -->
+    <string name="statistics_notifications_read">Notifications read: %d</string>
+    <string name="statistics_title">Statistics</string>
+    <string name="statistics_notifications_received">Notifications received</string>
+    <string name="statistics_notifications_read_label">Notifications read</string>
+    <string name="statistics_readouts_interrupted">Readouts interrupted</string>
+    <string name="statistics_percentage_read">Percentage read</string>
+    <string name="statistics_percentage_format">%.1f%%</string>
+    <string name="statistics_filter_reasons">Filter reasons</string>
+    <string name="statistics_apps_read">Apps read</string>
+    <string name="statistics_no_filter_reasons">No notifications filtered</string>
+    <string name="statistics_no_apps_read">No apps read yet</string>
+    <string name="statistics_filter_reason_master_switch">Master switch disabled</string>
+    <string name="statistics_filter_reason_dnd">Do Not Disturb</string>
+    <string name="statistics_filter_reason_audio_mode">Audio mode</string>
+    <string name="statistics_filter_reason_phone_calls">Phone calls</string>
+    <string name="statistics_filter_reason_word_filters">Word filters</string>
+    <string name="statistics_filter_reason_conditional_rules">Conditional rules</string>
+    <string name="statistics_filter_reason_media_behavior">Media behavior</string>
+    <string name="statistics_filter_reason_skip_mode">Skip mode</string>
+    <string name="statistics_filter_reason_app_list">App list</string>
+    <string name="statistics_filter_reason_deduplication">Deduplication</string>
+    <string name="statistics_filter_reason_dismissal_memory">Dismissal memory</string>
+    <string name="statistics_filter_reason_group_summary">Group summary</string>
+    <string name="statistics_filter_reason_self_package">Self package</string>
+    <string name="statistics_filter_count_format">%1$s: %2$d</string>
+    <string name="statistics_listener_rebind_requests">Listener rebind requests</string>
+    <string name="statistics_listener_rebind_skips">Listener rebind skips</string>
+    <string name="statistics_listener_rebind_recoveries">Listener rebind recoveries</string>
+    
+    <!-- Development Settings - Statistics Reset -->
+    <string name="dev_reset_statistics">Reset Statistics</string>
+    <string name="dev_reset_statistics_title">Reset Statistics</string>
+    <string name="dev_reset_statistics_message">Are you sure you want to reset all notification statistics? This action cannot be undone.</string>
+    <string name="dev_reset_statistics_success">Statistics reset successfully</string>
+    
 </resources> 

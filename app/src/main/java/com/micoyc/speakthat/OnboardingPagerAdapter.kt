@@ -7,11 +7,13 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.activity.result.ActivityResultLauncher
 import androidx.recyclerview.widget.RecyclerView
+import com.micoyc.speakthat.LanguagePresetManager
+import com.micoyc.speakthat.automation.AutomationMode
+import com.micoyc.speakthat.automation.AutomationModeManager
 import com.micoyc.speakthat.databinding.ItemOnboardingPageBinding
 import com.micoyc.speakthat.rules.RuleTemplate
 import com.micoyc.speakthat.rules.TriggerConfigActivity
 import com.micoyc.speakthat.rules.TriggerType
-import com.micoyc.speakthat.LanguagePresetManager
 import com.micoyc.speakthat.utils.WifiCapabilityChecker
 
 class OnboardingPagerAdapter(
@@ -527,11 +529,10 @@ class OnboardingPagerAdapter(
                 val ruleManager = com.micoyc.speakthat.rules.RuleManager(binding.root.context)
                 ruleManager.addRule(rule)
                 
-                // Enable Conditional Rules if it's not already enabled
-                if (!ruleManager.isRulesEnabled()) {
-                    ruleManager.setRulesEnabled(true)
-                    InAppLogger.log("OnboardingRuleTemplates", "Enabled Conditional Rules feature")
-                }
+                // Ensure Conditional Rules mode is active
+                val automationModeManager = AutomationModeManager(binding.root.context)
+                automationModeManager.setMode(AutomationMode.CONDITIONAL_RULES)
+                InAppLogger.log("OnboardingRuleTemplates", "Enabled Conditional Rules feature")
                 
                 InAppLogger.log("OnboardingRuleTemplates", "Added rule from template: ${template.name}")
                 
@@ -862,8 +863,7 @@ class OnboardingPagerAdapter(
             try {
                 // Check if this is a WiFi rule with specific networks and we can't resolve SSIDs
                 val hasWifiTrigger = template.triggers.any { it.type == TriggerType.WIFI_NETWORK }
-                val hasSpecificNetworks = customData.containsKey("network_ssids") && 
-                    (customData["network_ssids"] as? Set<String>)?.isNotEmpty() == true
+                val hasSpecificNetworks = (customData["network_ssids"] as? Collection<*>)?.any { (it as? String)?.isNotBlank() == true } == true
                 
                 if (hasWifiTrigger && hasSpecificNetworks) {
                     // Always show warning for WiFi rules with specific networks to inform about Android limitations
@@ -881,7 +881,8 @@ class OnboardingPagerAdapter(
                 
                 // Enable Conditional Rules if it's not already enabled
                 if (!ruleManager.isRulesEnabled()) {
-                    ruleManager.setRulesEnabled(true)
+                    val automationModeManager = AutomationModeManager(binding.root.context)
+                    automationModeManager.setMode(AutomationMode.CONDITIONAL_RULES)
                     InAppLogger.log("OnboardingRuleTemplates", "Enabled Conditional Rules feature")
                 }
                 
@@ -936,7 +937,8 @@ class OnboardingPagerAdapter(
                 
                 // Enable Conditional Rules if it's not already enabled
                 if (!ruleManager.isRulesEnabled()) {
-                    ruleManager.setRulesEnabled(true)
+                    val automationModeManager = AutomationModeManager(binding.root.context)
+                    automationModeManager.setMode(AutomationMode.CONDITIONAL_RULES)
                     InAppLogger.log("OnboardingRuleTemplates", "Enabled Conditional Rules feature")
                 }
                 

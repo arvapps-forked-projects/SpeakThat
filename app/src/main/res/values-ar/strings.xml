@@ -462,5 +462,40 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <!-- Conditional Rules - Exception Strings -->
     <string name="rule_exception_wifi_network">Connected to WiFi network: %1$s</string>
     <string name="rule_exception_not_wifi_network">Not connected to WiFi network: %1$s</string>
+    <string name="selftest_step1_rebinding">تم تفعيل الإذن - يتم إعادة توصيل مستمع الإشعارات...</string>
+    <string name="selftest_step9_rebinding">انقطع اتصال المستمع - تتم المحاولة تلقائيًا...</string>
+    <string name="listener_warning_title">يحتاج مستمع الإشعارات إلى اهتمام</string>
+    <string name="listener_warning_body_disconnected">قام أندرويد بفصل خدمة الإشعارات منذ %1$s. اضغط على "إعادة المحاولة" لطلب إعادة الاتصال. إذا تكرر الأمر، عطّل تحسين البطارية من الإعدادات العامة.</string>
+    <string name="listener_warning_body_stale">لم تتصل خدمة الإشعارات منذ %1$s. اضغط على "إعادة المحاولة" لتنشيطها، ثم راجع إعداد استثناء البطارية في الإعدادات العامة إذا استمرت المشكلة.</string>
+    <string name="listener_warning_time_unknown">مؤخرًا</string>
+    <string name="listener_warning_retry_in_progress">تم إرسال طلب إعادة الربط</string>
+    <string name="listener_warning_retry_denied">انتظر لحظة قبل المحاولة مرة أخرى</string>
+    <string name="listener_warning_last_attempt">آخر محاولة لإعادة الاتصال: %1$s</string>
+    <string name="dev_listener_health_title">حالة مستمع الإشعارات</string>
+    <string name="listener_status_permission_missing">وصول الإشعارات غير مفعّل - امنح الإذن للمتابعة</string>
+    <string name="listener_status_disconnected">قام أندرويد بفصل المستمع منذ %1$s</string>
+    <string name="listener_status_idle">لا يوجد نشاط للمستمع منذ %1$s</string>
+    <string name="listener_status_ok">كل شيء يعمل - آخر نشاط قبل %1$s</string>
+    <string name="listener_health_last_activity">آخر نشاط: %1$s</string>
+    <string name="listener_health_last_connect">آخر اتصال: %1$s</string>
+    <string name="listener_health_last_disconnect">آخر فصل: %1$s</string>
+    <string name="listener_health_last_heartbeat">آخر نبضة: %1$s</string>
+    <string name="listener_health_last_rebind_success">آخر إعادة ارتباط ناجحة: %1$s</string>
+    <string name="rules_mode_off_title">Off</string>
+    <string name="rules_mode_off_description">No automation, SpeakThat! remains permanently active.</string>
+    <string name="rules_mode_conditional_title">Conditional Rules</string>
+    <string name="rules_mode_conditional_description">Use the internal automation in SpeakThat! for Bluetooth device detection, time schedules, etc.</string>
+    <string name="rules_mode_external_title">External Automation</string>
+    <string name="rules_mode_external_description">Enable intents for third-party automation tools such as MacroDroid or Tasker.</string>
+    <string name="rules_mode_info_title">Automation Modes</string>
+    <string name="rules_mode_info_description">SpeakThat can only use one automation source at a time.\n\nOff - Keep automation disabled so SpeakThat remains active until you toggle the master switch manually.\n\nConditional Rules - Use the built-in triggers in SpeakThat! for Bluetooth devices, schedules, and filters.\n\nExternal Automation - Enable broadcast intents for automation tools (e.g., MacroDroid, Tasker) to control SpeakThat directly.</string>
+    <string name="rules_mode_info_content_description">Automation mode information</string>
+    <string name="rules_mode_off_empty_title">Automation disabled</string>
+    <string name="rules_mode_off_empty_description">Select “Conditional Rules” to create automations, or leave this mode selected to keep SpeakThat always active.</string>
+    <string name="rules_mode_external_empty_title">Controlled by automation</string>
+    <string name="rules_mode_external_empty_description">SpeakThat is waiting for automation intents. Switch back to “Conditional Rules” to edit internal automations.</string>
+    <string name="selftest_step7_external">External automation controls SpeakThat</string>
+    <string name="diagnostics_should_read_yes_conditional">All checks passed – notifications should be read (Conditional Rules active)</string>
+    <string name="diagnostics_should_read_yes_external">All checks passed – notifications are controlled by external automation</string>
 </resources>
 

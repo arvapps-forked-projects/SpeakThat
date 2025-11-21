@@ -20,6 +20,8 @@ import android.text.TextUtils
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.micoyc.speakthat.VoiceSettingsActivity
+import com.micoyc.speakthat.automation.AutomationMode
+import com.micoyc.speakthat.automation.AutomationModeManager
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
@@ -266,6 +268,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         Log.d(TAG, "About to check for updates on resume")
         checkForUpdatesIfEnabled()
         
+        // Update statistics display
+        updateStatisticsDisplay()
 
     }
     
@@ -397,6 +401,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         
         // Always show "Permission Settings" for consistent button sizing
         binding.buttonEnablePermission.text = getString(R.string.open_settings)
+
+    }
+    
+    private fun updateStatisticsDisplay() {
+        try {
+            val statsManager = StatisticsManager.getInstance(this)
+            val notificationsRead = statsManager.getNotificationsRead()
+            binding.textStatistics.text = getString(R.string.statistics_notifications_read, notificationsRead)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating statistics display", e)
+            binding.textStatistics.text = ""
+        }
     }
     
     private fun isNotificationServiceEnabled(): Boolean {
@@ -422,18 +438,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
     }
     
     private fun handleMasterSwitchToggle(isEnabled: Boolean) {
-        // Save the master switch state
-        sharedPreferences?.edit()?.putBoolean(KEY_MASTER_SWITCH_ENABLED, isEnabled)?.apply()
+        // Update persistence and notification side-effects
+        MasterSwitchController.setEnabled(this, isEnabled, "MainActivityToggle")
         
         // Update UI immediately
         updateServiceStatus()
-        
-        // Manage notifications based on master switch state
-        manageNotificationsForMasterSwitch(isEnabled)
-        
-        // Log the change
-        InAppLogger.logSettingsChange("Master Switch", (!isEnabled).toString(), isEnabled.toString())
-        InAppLogger.log("MasterSwitch", "Master switch ${if (isEnabled) "enabled" else "disabled"}")
         
         // Show feedback to user
         val message = if (isEnabled) {
@@ -443,79 +452,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         }
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
         
-
-        
         Log.d(TAG, "Master switch toggled: $isEnabled")
-    }
-    
-    /**
-     * Manage SpeakThat notifications based on master switch state
-     */
-    private fun manageNotificationsForMasterSwitch(isEnabled: Boolean) {
-        try {
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            
-            if (isEnabled) {
-                // Master switch enabled - show persistent notification if setting is enabled
-                val isPersistentNotificationEnabled = sharedPreferences?.getBoolean("persistent_notification", false) ?: false
-                if (isPersistentNotificationEnabled) {
-                    // Create notification channel for Android O+
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                        val channel = NotificationChannel(
-                            "SpeakThat_Channel",
-                            "SpeakThat Notifications",
-                            NotificationManager.IMPORTANCE_DEFAULT
-                        ).apply {
-                            description = "Notifications from SpeakThat app"
-                            setSound(null, null) // No sound
-                            enableVibration(false) // No vibration
-                            setShowBadge(false) // No badge
-                        }
-                        notificationManager.createNotificationChannel(channel)
-                    }
-                    
-                    // Create intent for opening SpeakThat
-                    val openAppIntent = Intent(this, MainActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                    }
-                    val openAppPendingIntent = PendingIntent.getActivity(
-                        this, 0, openAppIntent, 
-                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                    )
-                    
-                    // Build notification
-                    val notification = androidx.core.app.NotificationCompat.Builder(this, "SpeakThat_Channel")
-                        .setContentTitle(getString(R.string.main_notification_title_active))
-                        .setContentText(getString(R.string.main_notification_content_tap_settings))
-                        .setSmallIcon(R.drawable.speakthaticon)
-                        .setOngoing(true) // Persistent notification
-                        .setSilent(true) // Silent notification
-                        .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
-                        .setContentIntent(openAppPendingIntent)
-                        .addAction(
-                            R.drawable.speakthaticon,
-                            "Open SpeakThat!",
-                            openAppPendingIntent
-                        )
-                        .build()
-                    
-                    // Show notification
-                    notificationManager.notify(1001, notification)
-                    Log.d(TAG, "Persistent notification shown due to master switch enabled")
-                    InAppLogger.log("Notifications", "Persistent notification shown due to master switch enabled")
-                }
-            } else {
-                // Master switch disabled - hide all SpeakThat notifications
-                notificationManager.cancel(1001) // Persistent notification
-                notificationManager.cancel(1002) // Reading notification
-                Log.d(TAG, "All SpeakThat notifications hidden due to master switch disabled")
-                InAppLogger.log("Notifications", "All SpeakThat notifications hidden due to master switch disabled")
-            }
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error managing notifications for master switch", e)
-            InAppLogger.logError("Notifications", "Error managing notifications for master switch: ${e.message}")
-        }
     }
     
     // showNotificationHistory moved to DevelopmentSettingsActivity
@@ -536,13 +473,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         val savedLanguage = voiceSettingsPrefs.getString("language", "en_US") ?: "en_US"
         
         try {
-            // Parse the locale string (e.g., "ja_JP" -> Locale("ja", "JP"))
-            val localeParts = savedLanguage.split("_")
-            val targetLocale = when {
-                localeParts.size >= 2 -> java.util.Locale(localeParts[0], localeParts[1])
-                localeParts.size == 1 -> java.util.Locale(localeParts[0])
-                else -> java.util.Locale.getDefault()
-            }
+            val targetLocale = parseLocalePreference(savedLanguage)
             
             // Check if we need to change the locale
             val currentConfig = resources.configuration
@@ -571,7 +502,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
                 resources.updateConfiguration(config, resources.displayMetrics)
                 
                 // Also update the default locale for this session
-                java.util.Locale.setDefault(targetLocale)
+                Locale.setDefault(targetLocale)
                 
                 // Show language change dialog instead of immediate recreate
                 showLanguageChangeDialog(targetLocale)
@@ -582,6 +513,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         } catch (e: Exception) {
             com.micoyc.speakthat.InAppLogger.log("MainActivity", 
                 "Error applying saved language: ${e.message}")
+        }
+    }
+
+    private fun parseLocalePreference(languageTag: String): Locale {
+        return try {
+            val normalizedTag = languageTag.replace('_', '-')
+            val locale = Locale.forLanguageTag(normalizedTag)
+            if (locale.language.isBlank()) Locale.getDefault() else locale
+        } catch (e: Exception) {
+            Locale.getDefault()
         }
     }
     
@@ -1231,8 +1172,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
                 true
             }
             R.id.action_diagnostics -> {
-                InAppLogger.logUserAction("Quick diagnostics menu item clicked")
-                showQuickDiagnosticsDialog()
+                InAppLogger.logUserAction("SelfTest launched from menu")
+                startActivity(Intent(this, SelfTestActivity::class.java))
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -1331,13 +1272,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
             val voiceSettingsPrefs = getSharedPreferences("VoiceSettings", MODE_PRIVATE)
             val savedLanguage = voiceSettingsPrefs.getString("language", "en_US") ?: "en_US"
             
-            // Parse locale
-            val localeParts = savedLanguage.split("_")
-            val targetLocale = when {
-                localeParts.size >= 2 -> java.util.Locale(localeParts[0], localeParts[1])
-                localeParts.size == 1 -> java.util.Locale(localeParts[0])
-                else -> java.util.Locale.getDefault()
-            }
+            val targetLocale = parseLocalePreference(savedLanguage)
             
             val availability = textToSpeech?.isLanguageAvailable(targetLocale) ?: TextToSpeech.LANG_NOT_SUPPORTED
             when (availability) {
@@ -1419,17 +1354,23 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
             }
             
             // Check if any rules are blocking (simplified check)
-            try {
-                // This is a simplified check - in a real implementation, we'd need to initialize RuleManager
-                // For now, we'll just check if rules are enabled
-                val rulesEnabled = voiceSettingsPrefs.getBoolean("rules_enabled", false)
-                if (rulesEnabled) {
-                    // We can't easily check rule status without full RuleManager initialization
-                    // So we'll just indicate that rules are enabled
-                    return DiagnosticResult("Y", getString(R.string.diagnostics_should_read_yes) + " (rules enabled)")
+            val automationMode = AutomationModeManager(this).getMode()
+            when (automationMode) {
+                AutomationMode.CONDITIONAL_RULES -> {
+                    return DiagnosticResult(
+                        "Y",
+                        getString(R.string.diagnostics_should_read_yes_conditional)
+                    )
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Could not check rules status", e)
+                AutomationMode.EXTERNAL_AUTOMATION -> {
+                    return DiagnosticResult(
+                        "Y",
+                        getString(R.string.diagnostics_should_read_yes_external)
+                    )
+                }
+                else -> {
+                    // fall through
+                }
             }
             
             DiagnosticResult("Y", getString(R.string.diagnostics_should_read_yes))

@@ -462,5 +462,40 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <!-- Conditional Rules - Exception Strings -->
     <string name="rule_exception_wifi_network">Connected to WiFi network: %1$s</string>
     <string name="rule_exception_not_wifi_network">Not connected to WiFi network: %1$s</string>
+    <string name="selftest_step1_rebinding">Behörighet aktiverad - återansluter avisningslyssnaren...</string>
+    <string name="selftest_step9_rebinding">Lyssnaren kopplades från - försöker igen automatiskt...</string>
+    <string name="listener_warning_title">Avisningslyssnaren behöver uppmärksamhet</string>
+    <string name="listener_warning_body_disconnected">Android kopplade från avisningstjänsten för %1$s sedan. Tryck på "Försök igen" för att be systemet att ansluta på nytt. Om det händer ofta, inaktivera batterioptimering i Allmänna inställningar.</string>
+    <string name="listener_warning_body_stale">Avisningstjänsten har inte anslutit på %1$s. Tryck på "Försök igen" för att väcka den och gå igenom batterioptimeringen i Allmänna inställningar om problemet kvarstår.</string>
+    <string name="listener_warning_time_unknown">nyligen</string>
+    <string name="listener_warning_retry_in_progress">Begäran om återanslutning skickad</string>
+    <string name="listener_warning_retry_denied">Vänta lite innan du försöker igen</string>
+    <string name="listener_warning_last_attempt">Senaste återanslutningsförsök: %1$s</string>
+    <string name="dev_listener_health_title">Status för avisningslyssnaren</string>
+    <string name="listener_status_permission_missing">Behörighet för aviseringar saknas - ge åtkomst för att fortsätta</string>
+    <string name="listener_status_disconnected">Android kopplade från lyssnaren för %1$s sedan</string>
+    <string name="listener_status_idle">Ingen lyssnaraktivitet på %1$s</string>
+    <string name="listener_status_ok">Allt ser bra ut - senaste aktivitet för %1$s sedan</string>
+    <string name="listener_health_last_activity">Senaste aktivitet: %1$s</string>
+    <string name="listener_health_last_connect">Senaste anslutning: %1$s</string>
+    <string name="listener_health_last_disconnect">Senaste frånkoppling: %1$s</string>
+    <string name="listener_health_last_heartbeat">Senaste heartbeat: %1$s</string>
+    <string name="listener_health_last_rebind_success">Senaste lyckade återbindning: %1$s</string>
+    <string name="rules_mode_off_title">Av</string>
+    <string name="rules_mode_off_description">Utan automatisering förblir SpeakThat! alltid aktiv.</string>
+    <string name="rules_mode_conditional_title">Villkorade regler</string>
+    <string name="rules_mode_conditional_description">Använd SpeakThat!s interna automatisering för att upptäcka Bluetooth-enheter, scheman osv.</string>
+    <string name="rules_mode_external_title">Extern automatisering</string>
+    <string name="rules_mode_external_description">Aktivera intents för automatiseringsverktyg från tredje part som MacroDroid eller Tasker.</string>
+    <string name="rules_mode_info_title">Automatiseringslägen</string>
+    <string name="rules_mode_info_description">SpeakThat kan bara använda en automatiseringskälla åt gången.\n\nAv – Håller automatiseringen avstängd så att SpeakThat fortsätter vara aktiv tills du ändrar huvudbrytaren manuellt.\n\nVillkorade regler – Utnyttjar SpeakThat!s inbyggda triggrar för Bluetooth-enheter, scheman och filter.\n\nExtern automatisering – Aktiverar sändnings-intents för verktyg som MacroDroid eller Tasker som styr SpeakThat direkt.</string>
+    <string name="rules_mode_info_content_description">Information om automatiseringsläge</string>
+    <string name="rules_mode_off_empty_title">Automatisering avstängd</string>
+    <string name="rules_mode_off_empty_description">Välj ”Villkorade regler” för att skapa automatiseringar eller lämna det här läget för att hålla SpeakThat alltid aktivt.</string>
+    <string name="rules_mode_external_empty_title">Styrs av automatisering</string>
+    <string name="rules_mode_external_empty_description">SpeakThat väntar på automatiserings-intents. Byt tillbaka till ”Villkorade regler” för att redigera interna automatiseringar.</string>
+    <string name="selftest_step7_external">Extern automatisering styr SpeakThat</string>
+    <string name="diagnostics_should_read_yes_conditional">Alla kontroller godkända – aviseringar bör läsas upp (Villkorade regler aktiva)</string>
+    <string name="diagnostics_should_read_yes_external">Alla kontroller godkända – aviseringar styrs av extern automatisering</string>
 </resources>
 

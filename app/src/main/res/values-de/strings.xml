@@ -1213,6 +1213,19 @@ Erstelle leistungsstarke Regeln zur Kontrolle, wann SpeakThat Benachrichtigungen
 </string>
     <string name="rules_enable">Regeln aktivieren</string>
     <string name="rules_create_new">Neue Regel erstellen</string>
+    <string name="rules_mode_off_title">Aus</string>
+    <string name="rules_mode_off_description">Keine Automatisierung, SpeakThat! bleibt dauerhaft aktiv.</string>
+    <string name="rules_mode_conditional_title">Bedingte Regeln</string>
+    <string name="rules_mode_conditional_description">Nutze die interne Automatisierung von SpeakThat! für Bluetooth-Erkennung, Zeitpläne usw.</string>
+    <string name="rules_mode_external_title">Externe Automatisierung</string>
+    <string name="rules_mode_external_description">Aktiviere Intents für Automatisierungs-Apps wie MacroDroid oder Tasker.</string>
+    <string name="rules_mode_info_title">Automatisierungsmodi</string>
+    <string name="rules_mode_info_description">SpeakThat kann immer nur eine Automatisierungsquelle gleichzeitig verwenden.\n\nAus – Hält die Automatisierung deaktiviert, damit SpeakThat aktiv bleibt, bis du den Hauptschalter änderst.\n\nBedingte Regeln – Nutzt die integrierten Trigger von SpeakThat! für Bluetooth-Geräte, Zeitpläne und Filter.\n\nExterne Automatisierung – Aktiviert Broadcast-Intents für Tools wie MacroDroid oder Tasker, die SpeakThat direkt steuern.</string>
+    <string name="rules_mode_info_content_description">Informationen zum Automatisierungsmodus</string>
+    <string name="rules_mode_off_empty_title">Automatisierung deaktiviert</string>
+    <string name="rules_mode_off_empty_description">Wähle „Bedingte Regeln“, um Automatisierungen zu erstellen, oder lasse diesen Modus aktiv, damit SpeakThat dauerhaft eingeschaltet bleibt.</string>
+    <string name="rules_mode_external_empty_title">Von Automatisierung gesteuert</string>
+    <string name="rules_mode_external_empty_description">SpeakThat wartet auf Automatisierungs-Intents. Wechsle zurück zu „Bedingte Regeln“, um interne Automatisierungen zu bearbeiten.</string>
     <!-- Onboarding -->
     <string name="onboarding_skip">Überspringen</string>
     <string name="onboarding_next">Weiter</string>
@@ -1712,4 +1725,26 @@ Wenn Sie SpeakThat hilfreich finden, überlegen Sie bitte eine Bewertung im Goog
     <string name="dev_test_review_reminder">🧪 Teste Rezensions-Erinnerung</string>
     <string name="dev_reset_review_reminder">🔄 Rezensions-Erinnerung zurücksetzen</string>
     <string name="dev_review_reminder_stats">📊 Rezensions-Erinnerung Status</string>
+    <string name="selftest_step1_rebinding">Berechtigung aktiv - Benachrichtigungslistener wird neu verbunden...</string>
+    <string name="selftest_step9_rebinding">Listener getrennt - automatischer erneuter Versuch...</string>
+    <string name="listener_warning_title">Benachrichtigungslistener benötigt Aufmerksamkeit</string>
+    <string name="listener_warning_body_disconnected">Android hat den Benachrichtigungsdienst vor %1$s getrennt. Tippe auf „Erneut versuchen“, um das System um eine neue Verbindung zu bitten. Wenn das häufig passiert, deaktiviere die Akku-Optimierung in den allgemeinen Einstellungen.</string>
+    <string name="listener_warning_body_stale">Der Benachrichtigungsdienst hat seit %1$s keine Verbindung hergestellt. Tippe auf „Erneut versuchen“, um ihn zu wecken, und überprüfe anschließend die Akku-Optimierung in den allgemeinen Einstellungen, falls das Problem bleibt.</string>
+    <string name="listener_warning_time_unknown">kürzlich</string>
+    <string name="listener_warning_retry_in_progress">Neuverbindungsanfrage gesendet</string>
+    <string name="listener_warning_retry_denied">Bitte kurz warten und dann erneut versuchen</string>
+    <string name="listener_warning_last_attempt">Letzter Verbindungsversuch: %1$s</string>
+    <string name="dev_listener_health_title">Benachrichtigungslistener-Zustand</string>
+    <string name="listener_status_permission_missing">Benachrichtigungszugriff fehlt - bitte Berechtigung erteilen</string>
+    <string name="listener_status_disconnected">Android hat den Listener vor %1$s getrennt</string>
+    <string name="listener_status_idle">Keine Listener-Aktivität seit %1$s</string>
+    <string name="listener_status_ok">Alles in Ordnung - letzte Aktivität vor %1$s</string>
+    <string name="listener_health_last_activity">Letzte Aktivität: %1$s</string>
+    <string name="listener_health_last_connect">Letzte Verbindung: %1$s</string>
+    <string name="listener_health_last_disconnect">Letzte Trennung: %1$s</string>
+    <string name="listener_health_last_heartbeat">Letzter Heartbeat: %1$s</string>
+    <string name="listener_health_last_rebind_success">Letzte erfolgreiche Neuverbindung: %1$s</string>
+    <string name="statistics_listener_rebind_requests">Anforderungen zum Neuverbinden des Listeners</string>
+    <string name="statistics_listener_rebind_skips">Übersprungene Neuverbindungen</string>
+    <string name="statistics_listener_rebind_recoveries">Erfolgreiche Neuverbindungswiederherstellungen</string>
 </resources>

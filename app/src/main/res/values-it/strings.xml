@@ -463,5 +463,40 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <!-- Conditional Rules - Exception Strings -->
     <string name="rule_exception_wifi_network">Connected to WiFi network: %1$s</string>
     <string name="rule_exception_not_wifi_network">Not connected to WiFi network: %1$s</string>
+    <string name="selftest_step1_rebinding">Autorizzazione attiva - riconnessione del listener delle notifiche...</string>
+    <string name="selftest_step9_rebinding">Listener disconnesso - nuovo tentativo automatico...</string>
+    <string name="listener_warning_title">Il listener delle notifiche richiede attenzione</string>
+    <string name="listener_warning_body_disconnected">Android ha disconnesso il servizio notifiche %1$s fa. Tocca "Riprova" per chiedere al sistema di riconnetterlo. Se succede spesso, disattiva l’ottimizzazione della batteria nelle Impostazioni generali.</string>
+    <string name="listener_warning_body_stale">Il servizio notifiche non si collega da %1$s. Tocca "Riprova" per riattivarlo e verifica l’ottimizzazione della batteria nelle Impostazioni generali se il problema continua.</string>
+    <string name="listener_warning_time_unknown">di recente</string>
+    <string name="listener_warning_retry_in_progress">Richiesta di riconnessione inviata</string>
+    <string name="listener_warning_retry_denied">Attendi un momento prima di riprovare</string>
+    <string name="listener_warning_last_attempt">Ultimo tentativo di riconnessione: %1$s</string>
+    <string name="dev_listener_health_title">Stato del listener notifiche</string>
+    <string name="listener_status_permission_missing">Accesso alle notifiche mancante - concedi l’autorizzazione per continuare</string>
+    <string name="listener_status_disconnected">Android ha disconnesso il listener %1$s fa</string>
+    <string name="listener_status_idle">Nessuna attività del listener da %1$s</string>
+    <string name="listener_status_ok">Tutto ok - ultima attività %1$s fa</string>
+    <string name="listener_health_last_activity">Ultima attività: %1$s</string>
+    <string name="listener_health_last_connect">Ultima connessione: %1$s</string>
+    <string name="listener_health_last_disconnect">Ultima disconnessione: %1$s</string>
+    <string name="listener_health_last_heartbeat">Ultimo heartbeat: %1$s</string>
+    <string name="listener_health_last_rebind_success">Ultimo ricollegamento riuscito: %1$s</string>
+    <string name="rules_mode_off_title">Disattivato</string>
+    <string name="rules_mode_off_description">Senza automazione, SpeakThat! rimane sempre attivo.</string>
+    <string name="rules_mode_conditional_title">Regole condizionali</string>
+    <string name="rules_mode_conditional_description">Usa l’automazione interna di SpeakThat! per rilevare dispositivi Bluetooth, orari, ecc.</string>
+    <string name="rules_mode_external_title">Automazione esterna</string>
+    <string name="rules_mode_external_description">Abilita intents per strumenti di automazione di terze parti come MacroDroid o Tasker.</string>
+    <string name="rules_mode_info_title">Modalità di automazione</string>
+    <string name="rules_mode_info_description">SpeakThat può usare una sola fonte di automazione alla volta.\n\nDisattivato – Mantiene l’automazione spenta in modo che SpeakThat resti attivo finché non cambi l’interruttore principale.\n\nRegole condizionali – Utilizza i trigger integrati di SpeakThat! per dispositivi Bluetooth, pianificazioni e filtri.\n\nAutomazione esterna – Attiva intents broadcast per strumenti come MacroDroid o Tasker che controllano direttamente SpeakThat.</string>
+    <string name="rules_mode_info_content_description">Informazioni sulla modalità di automazione</string>
+    <string name="rules_mode_off_empty_title">Automazione disattivata</string>
+    <string name="rules_mode_off_empty_description">Seleziona «Regole condizionali» per creare automazioni oppure lascia questa modalità per mantenere SpeakThat sempre attivo.</string>
+    <string name="rules_mode_external_empty_title">Controllato dall’automazione</string>
+    <string name="rules_mode_external_empty_description">SpeakThat è in attesa di intents di automazione. Torna a «Regole condizionali» per modificare le automazioni interne.</string>
+    <string name="selftest_step7_external">L’automazione esterna controlla SpeakThat</string>
+    <string name="diagnostics_should_read_yes_conditional">Tutti i controlli sono superati: le notifiche dovrebbero essere lette (Regole condizionali attive)</string>
+    <string name="diagnostics_should_read_yes_external">Tutti i controlli sono superati: le notifiche sono controllate dall’automazione esterna</string>
 </resources>
 

@@ -462,5 +462,24 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <!-- Conditional Rules - Exception Strings -->
     <string name="rule_exception_wifi_network">Connected to WiFi network: %1$s</string>
     <string name="rule_exception_not_wifi_network">Not connected to WiFi network: %1$s</string>
+    <string name="selftest_step1_rebinding">Quyền đã bật - đang kết nối lại bộ lắng nghe thông báo...</string>
+    <string name="selftest_step9_rebinding">Bộ lắng nghe bị ngắt - tự động thử lại...</string>
+    <string name="listener_warning_title">Bộ lắng nghe thông báo cần được chú ý</string>
+    <string name="listener_warning_body_disconnected">Android đã ngắt dịch vụ thông báo cách đây %1$s. Nhấn "Thử lại" để yêu cầu hệ thống kết nối lại. Nếu xảy ra thường xuyên, hãy tắt tối ưu hóa pin trong Cài đặt chung.</string>
+    <string name="listener_warning_body_stale">Dịch vụ thông báo chưa kết nối trong %1$s. Nhấn "Thử lại" để đánh thức nó, sau đó kiểm tra tối ưu hóa pin trong Cài đặt chung nếu vấn đề vẫn tiếp diễn.</string>
+    <string name="listener_warning_time_unknown">gần đây</string>
+    <string name="listener_warning_retry_in_progress">Đã gửi yêu cầu kết nối lại</string>
+    <string name="listener_warning_retry_denied">Chờ một chút rồi thử lại</string>
+    <string name="listener_warning_last_attempt">Lần thử kết nối lại gần nhất: %1$s</string>
+    <string name="dev_listener_health_title">Tình trạng trình nghe thông báo</string>
+    <string name="listener_status_permission_missing">Thiếu quyền truy cập thông báo - hãy cấp quyền để tiếp tục</string>
+    <string name="listener_status_disconnected">Android đã ngắt trình nghe cách đây %1$s</string>
+    <string name="listener_status_idle">Không có hoạt động của trình nghe trong %1$s</string>
+    <string name="listener_status_ok">Mọi thứ ổn - lần hoạt động cuối %1$s trước</string>
+    <string name="listener_health_last_activity">Hoạt động cuối: %1$s</string>
+    <string name="listener_health_last_connect">Kết nối cuối: %1$s</string>
+    <string name="listener_health_last_disconnect">Ngắt kết nối cuối: %1$s</string>
+    <string name="listener_health_last_heartbeat">Nhịp tim cuối: %1$s</string>
+    <string name="listener_health_last_rebind_success">Lần nối lại thành công gần nhất: %1$s</string>
 </resources>
 

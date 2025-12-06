@@ -16,6 +16,7 @@ import android.hardware.SensorManager
 import android.media.AudioManager
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
+import android.media.session.PlaybackState
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.speech.tts.TextToSpeech
@@ -69,6 +70,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     private var duckingVolume = 30
     private var delayBeforeReadout = 0
     private var isPersistentFilteringEnabled = true
+    private var legacyDuckingEnabled = false
     
     // Shake detection
     private var sensorManager: SensorManager? = null
@@ -91,7 +93,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     private var originalMusicVolume = -1 // Store original volume for restoration
     private var originalAudioMode = -1 // Store original audio mode for restoration
     private var audioFocusRequest: android.media.AudioFocusRequest? = null
-    private var pausedMediaSessions = mutableListOf<MediaController>() // Track paused media sessions for resume
+    private val pausedMediaSessions = mutableListOf<MediaController>() // Track paused sessions when legacy ducking is enabled
     
     // Media notification filtering
     private var mediaFilterPreferences = MediaNotificationDetector.MediaFilterPreferences()
@@ -113,6 +115,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     
     // Speech template settings
     private var speechTemplate = "{app} notified you: {content}"
+    private var speechTemplateKey: String = SpeechTemplateConstants.DEFAULT_TEMPLATE_KEY
     
     // Varied format options for random selection
     private val variedFormats = arrayOf(
@@ -239,6 +242,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         private const val WATCHDOG_REBIND_COOLDOWN_MS = 2 * 60 * 1000L
         private const val LISTENER_REBIND_DELAY_MS = 7_500L
         private const val LEGACY_COMPONENT_REENABLE_DELAY_MS = 2_000L
+        private const val DEFAULT_TTS_USAGE_INDEX = 4
         
         // Filter system keys
         private const val KEY_APP_LIST_MODE = "app_list_mode"
@@ -261,6 +265,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         
         // Speech template settings
         private const val KEY_SPEECH_TEMPLATE = "speech_template"
+        private const val KEY_SPEECH_TEMPLATE_KEY = "speech_template_key"
         
         // Conditional rules settings
         private const val KEY_CONDITIONAL_RULES = "conditional_rules"
@@ -365,6 +370,11 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             Log.d(TAG, "Registering preference change listener...")
             sharedPreferences?.registerOnSharedPreferenceChangeListener(this)
             Log.d(TAG, "Preference change listener registered")
+            legacyDuckingEnabled = sharedPreferences?.getBoolean("enable_legacy_ducking", false) ?: false
+            Log.d(
+                TAG,
+                "Legacy ducking ${if (legacyDuckingEnabled) "enabled" else "disabled"} at startup"
+            )
             
             // Initialize and register voice settings listener
             Log.d(TAG, "Initializing voice settings...")
@@ -912,7 +922,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                     Log.d(TAG, "Processing notification from $appName: '$notificationText' (ID: ${sbn?.id}, time: ${System.currentTimeMillis()})")
                     
                     // Apply filtering first to determine final privacy status
-                    val filterResult = applyFilters(packageName, appName, notificationText, sbn)
+                    val filterResult = applyFilters(packageName, appName, notificationText, sbn, isSelfTest)
                     
                     // Check if the final result is private (either app-level or word-level)
                     val isAppPrivate = privateApps.contains(packageName)
@@ -2181,8 +2191,8 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         // Load cooldown settings
         loadCooldownSettings()
         
-        // Load speech template
-        speechTemplate = sharedPreferences?.getString(KEY_SPEECH_TEMPLATE, "{app} notified you: {content}") ?: "{app} notified you: {content}"
+        // Load speech template + key
+        refreshSpeechTemplateState()
         
         // Load notification settings (values used in other parts of the service)
         sharedPreferences?.getBoolean(KEY_PERSISTENT_NOTIFICATION, false) ?: false
@@ -2227,9 +2237,15 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         }
     }
     
-    private fun applyFilters(packageName: String, appName: String, text: String, sbn: StatusBarNotification? = null): FilterResult {
+    private fun applyFilters(
+        packageName: String,
+        appName: String,
+        text: String,
+        sbn: StatusBarNotification? = null,
+        isSelfTest: Boolean = false
+    ): FilterResult {
         // 1. Check app filtering
-        val appFilterResult = checkAppFilter(packageName)
+        val appFilterResult = checkAppFilter(packageName, isSelfTest)
         if (!appFilterResult.shouldSpeak) {
             return appFilterResult
         }
@@ -2274,7 +2290,12 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         )
     }
     
-    private fun checkAppFilter(packageName: String): FilterResult {
+    private fun checkAppFilter(packageName: String, isSelfTest: Boolean = false): FilterResult {
+        if (isSelfTest) {
+            Log.d(TAG, "SelfTest bypass - skipping app list checks for $packageName")
+            InAppLogger.log("SelfTest", "App list bypassed for SelfTest notification")
+            return FilterResult(true, "", "SelfTest bypassed app list")
+        }
         return when (appListMode) {
             "whitelist" -> {
                 if (appList.contains(packageName)) {
@@ -3016,352 +3037,312 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     /**
      * MEDIA BEHAVIOR HANDLING (ignore, pause, duck, silence)
      *
-     * IMPORTANT DEVELOPER NOTE:
-     * - Android's audio focus and stream routing APIs are inconsistent across devices and OS versions.
-     * - 'Pause' mode requests transient audio focus, but many devices/ROMs (especially on Android 13+) will not grant it to notification listeners or background services, so media may not pause.
-     * - 'Duck' mode attempts to lower only the media stream, but on many devices, TTS is also routed through the media stream, so both are ducked together. The app recommends using the Notification stream for TTS, which works best for most users.
-     * - All user-facing warnings and help text are based on extensive real-world testing and user feedback.
-     * - If you revisit this code, check for new Android APIs or device-specific workarounds, but be aware that most limitations are outside app control.
-     * - See BehaviorSettingsActivity and VoiceSettingsActivity for user guidance and warnings.
+     * Respect the simplified focus-only path by default, but allow legacy behavior to be toggled
+     * back on from Development Settings when deeper hacks are necessary.
      */
     private fun handleMediaBehavior(appName: String, _text: String, sbn: StatusBarNotification? = null): Boolean {
         val isMusicActive = audioManager.isMusicActive
-        Log.d(TAG, "Media behavior check - isMusicActive: $isMusicActive, mediaBehavior: $mediaBehavior, isCurrentlySpeaking: $isCurrentlySpeaking")
-        
-        if (!isMusicActive) {
-            Log.d(TAG, "No media currently playing, proceeding normally")
-            return true
-        }
-        
-        // If we're currently speaking, this might be our own TTS triggering media detection
+        Log.d(
+            TAG,
+            "Media behavior check - isMusicActive: $isMusicActive, mediaBehavior: $mediaBehavior, " +
+                "isCurrentlySpeaking: $isCurrentlySpeaking, legacy=$legacyDuckingEnabled"
+        )
+
+        if (!isMusicActive) return true
+
         if (isCurrentlySpeaking) {
-            Log.d(TAG, "Media detected while TTS is speaking - this is likely our own TTS, proceeding normally")
-            InAppLogger.log("MediaBehavior", "Media detected while TTS is speaking - ignoring (likely our own TTS)")
+            Log.d(TAG, "Media detected while TTS is speaking - assuming it is our own playback, continuing")
+            InAppLogger.log("MediaBehavior", "Ignoring media detection because SpeakThat is already speaking")
             return true
         }
-        
-        Log.d(TAG, "Media is playing, applying media behavior: $mediaBehavior")
-        InAppLogger.log("MediaBehavior", "Media detected, applying behavior: $mediaBehavior")
-        // REFINED FAIL-SAFE: Only block true media control notifications (not all notifications from media apps)
+
         if (sbn != null && MediaNotificationDetector.isMediaNotification(sbn)) {
             val reason = MediaNotificationDetector.getMediaDetectionReason(sbn)
-            Log.d(TAG, "REFINED FAIL-SAFE: Notification detected as a media control. Blocking speech. Reason: $reason")
-            InAppLogger.logFilter("REFINED FAIL-SAFE: Blocked media control notification from $appName due to media control detection: $reason")
-            // Log all extras for debugging
-            val extras = sbn.notification.extras
-            Log.d(TAG, "[RefinedFailSafe] Notification extras: $extras")
-            return false // Block speech - never read out for true media controls
+            Log.d(TAG, "Notification detected as media control; skipping speech. Reason: $reason")
+            InAppLogger.logFilter("Blocked media control notification from $appName: $reason")
+            return false
         }
-        when (mediaBehavior) {
-            "ignore" -> {
-                Log.d(TAG, "Media behavior: IGNORE - proceeding normally")
-                return true
-            }
+
+        return if (legacyDuckingEnabled) {
+            handleLegacyMediaBehavior(appName)
+        } else {
+            handleModernMediaBehavior(appName)
+        }
+    }
+
+    private fun handleModernMediaBehavior(appName: String): Boolean {
+        return when (mediaBehavior) {
+            "ignore" -> true
             "pause" -> {
-                Log.d(TAG, "Media behavior: PAUSE - attempting direct media session control")
-                InAppLogger.log("MediaBehavior", "Pause mode initiated - attempting direct media session control")
-                
-                // Step 1: Try direct media session control (strongest approach)
-                val mediaSessionSuccess = tryMediaSessionPause()
-                if (mediaSessionSuccess) {
-                    Log.d(TAG, "Direct media session control successful - media paused")
-                    InAppLogger.log("MediaBehavior", "Direct media session control successful - media paused")
-                    return true
-                }
-                
-                // Step 2: Fall back to audio focus approach
-                Log.d(TAG, "Media session control failed - falling back to audio focus")
-                InAppLogger.log("MediaBehavior", "Media session control failed - trying audio focus")
-                
-                val focusGranted = requestAudioFocusForSpeech()
-                
-                if (focusGranted) {
-                    Log.d(TAG, "Audio focus granted - media should pause")
-                    InAppLogger.log("MediaBehavior", "Audio focus granted - media pause successful")
-                    return true
-                } else {
-                    // Audio focus denied - try fallback strategies
-                    Log.w(TAG, "Audio focus denied - trying fallback strategies")
-                    InAppLogger.log("MediaBehavior", "Audio focus denied - attempting fallback strategies")
-                    
-                    // Check if fallback is disabled in development settings
-                    if (isMediaFallbackDisabled(this)) {
-                        Log.w(TAG, "Media fallback disabled in development settings - not trying fallback strategies")
-                        InAppLogger.log("MediaBehavior", "Media fallback disabled in development settings - audio focus denied, no fallback attempted")
-                        return false
-                    }
-                    
-                    // Fallback 1: Try manual volume reduction as a "soft pause"
-                    val fallbackSuccess = trySoftPauseFallback()
-                    if (fallbackSuccess) {
-                        Log.d(TAG, "Fallback successful - using soft pause (volume reduction)")
-                        InAppLogger.log("MediaBehavior", "Fallback successful - using soft pause approach")
+                val granted = requestPauseAudioFocus()
+                if (!granted) {
+                    Log.w(TAG, "Audio focus denied for pause mode; escalating to media session fallback")
+                    InAppLogger.log("MediaBehavior", "Audio focus denied for pause mode, trying session fallback for $appName")
+
+                    val pausedViaSession = tryMediaSessionPause()
+                    if (pausedViaSession) {
+                        InAppLogger.log("MediaBehavior", "Media session pause succeeded for $appName (modern fallback)")
                         return true
                     }
-                    
-                    // Fallback 2: Proceed anyway but warn user
-                    Log.w(TAG, "All pause strategies failed - proceeding with notification anyway")
-                    InAppLogger.log("MediaBehavior", "All pause strategies failed - proceeding anyway (user may need to manually pause media)")
-                    
-                    // Log detailed diagnostics for troubleshooting
-                    logPauseModeDiagnostics()
-                    return true
+
+                    if (isMediaFallbackDisabled(this)) {
+                        Log.w(TAG, "Media fallback disabled - continuing without forcing media to stop")
+                        InAppLogger.log("MediaBehavior", "Media fallback disabled; continuing for $appName")
+                        return true
+                    }
+
+                    if (trySoftPauseFallback()) {
+                        InAppLogger.log("MediaBehavior", "Soft pause fallback applied for $appName (modern path)")
+                        return true
+                    }
+
+                    Log.w(TAG, "All pause fallbacks failed - reading without pausing media")
+                    InAppLogger.log("MediaBehavior", "Modern pause fallbacks failed for $appName - reading anyway")
+                } else {
+                    InAppLogger.log("MediaBehavior", "Audio focus granted for pause mode (modern path)")
                 }
+                true
             }
             "duck" -> {
-                Log.d(TAG, "Media behavior: DUCK - attempting enhanced ducking approach")
-                InAppLogger.log("MediaBehavior", "Enhanced ducking initiated - trying system ducking first")
-                
-                // TRICK 4: Try alternative audio focus strategy for ducking
-                val alternativeFocusSuccess = tryAlternativeDuckingFocus()
-                if (alternativeFocusSuccess) {
-                    Log.d(TAG, "Alternative ducking focus successful - system handling media ducking")
-                    InAppLogger.log("MediaBehavior", "Alternative ducking focus activated successfully")
-                    return true
-                }
-                
-                // Step 1: Try enhanced ducking with system audio focus
-                val enhancedDuckSuccess = tryEnhancedDucking()
-                
-                if (enhancedDuckSuccess) {
-                    Log.d(TAG, "Enhanced ducking successful - system is handling media ducking")
-                    InAppLogger.log("MediaBehavior", "System ducking activated successfully")
-                    return true
+                val granted = requestSpeechAudioFocus(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                if (!granted) {
+                    Log.w(TAG, "Audio focus denied for duck mode; continuing without system ducking")
+                    InAppLogger.log("MediaBehavior", "Audio focus denied for duck mode, continuing without system ducking")
                 } else {
-                    // Log device-specific ducking failure for compatibility tracking
-                    Log.w(TAG, "=== DUCKING DEBUG: Enhanced ducking failed on ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.SDK_INT}) ===")
-                    InAppLogger.log("MediaBehavior", "=== DUCKING DEBUG: Enhanced ducking failed on ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.SDK_INT}) - device may not support ducking ===")
-                                // TRICK: Give the system time to honor the audio focus request before checking
-            Log.d(TAG, "=== DUCKING DEBUG: Starting 200ms delay to let system audio policy take effect ===")
-            InAppLogger.log("MediaBehavior", "=== DUCKING DEBUG: Starting 200ms delay for system audio policy ===")
-            try {
-                Thread.sleep(200) // 200ms delay to let system audio policy take effect
-                Log.d(TAG, "=== DUCKING DEBUG: 200ms delay completed ===")
-                InAppLogger.log("MediaBehavior", "=== DUCKING DEBUG: 200ms delay completed ===")
-            } catch (e: InterruptedException) {
-                Log.d(TAG, "=== DUCKING DEBUG: Fallback delay interrupted ===")
-                InAppLogger.log("MediaBehavior", "=== DUCKING DEBUG: Fallback delay interrupted ===")
-            }
-            
-            // TRICK: Only fall back to manual ducking if music is still loud
-            // This prevents fighting with system ducking unnecessarily
-            val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-            val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-            val volumePercentage = (currentVolume * 100) / maxVolume
-            
-            Log.d(TAG, "=== DUCKING DEBUG: Volume check after delay - Current: $currentVolume, Max: $maxVolume, Percentage: $volumePercentage% ===")
-            InAppLogger.log("MediaBehavior", "=== DUCKING DEBUG: Volume check after delay - Current: $currentVolume, Max: $maxVolume, Percentage: $volumePercentage% ===")
-            
-            // If music volume is already low (≤30%), assume system ducking is working
-            if (volumePercentage <= 30) {
-                Log.d(TAG, "=== DUCKING DEBUG: Music volume already low ($volumePercentage%) - assuming system ducking is working ===")
-                InAppLogger.log("MediaBehavior", "=== DUCKING DEBUG: Music volume already low ($volumePercentage%) - system ducking appears to be working ===")
-                return true
-            }
-            
-            Log.d(TAG, "=== DUCKING DEBUG: Enhanced ducking failed and music still loud ($volumePercentage%) - falling back to manual volume control ===")
-            InAppLogger.log("MediaBehavior", "=== DUCKING DEBUG: Falling back to manual ducking - music volume: $volumePercentage% ===")
-            
-                            // Check if fallback is disabled in development settings
-                if (isMediaFallbackDisabled(this)) {
-                    Log.w(TAG, "=== DUCKING DEBUG: Media fallback disabled in development settings - enhanced ducking failed ===")
-                    InAppLogger.log("MediaBehavior", "=== DUCKING DEBUG: Media fallback disabled in development settings - enhanced ducking failed ===")
-                    
-                    // CRITICAL FIX: Instead of blocking the notification entirely, fall back to "Pause Audio" mode
-                    // This ensures the notification is still read even when ducking fails on devices that don't support it
-                    Log.w(TAG, "=== DUCKING DEBUG: Falling back to Pause Audio mode since ducking failed and fallbacks are disabled ===")
-                    InAppLogger.log("MediaBehavior", "=== DUCKING DEBUG: Falling back to Pause Audio mode since ducking failed on ${android.os.Build.MODEL} ===")
-                    
-                    // Try pause mode as a fallback when ducking fails
-                    val pauseModeSuccess = requestAudioFocusForSpeech()
-                    if (pauseModeSuccess) {
-                        Log.d(TAG, "=== DUCKING DEBUG: Pause mode fallback successful - notification will be read ===")
-                        InAppLogger.log("MediaBehavior", "=== DUCKING DEBUG: Pause mode fallback successful - notification will be read ===")
-                        return true
-                    } else {
-                        // CRITICAL FIX: Even when both audio focus methods fail, allow the notification to be read
-                        // This prevents notifications from being completely blocked on devices with strict audio policies
-                        Log.w(TAG, "=== DUCKING DEBUG: Both ducking and pause mode failed - allowing notification to be read without audio focus ===")
-                        InAppLogger.log("MediaBehavior", "=== DUCKING DEBUG: Both ducking and pause mode failed on ${android.os.Build.MODEL} - reading notification without audio focus ===")
-                        
-                        // Log detailed diagnostic information for debugging
-                        logAudioFocusDiagnostics()
-                        
-                        // Return true to allow the notification to be read, even without audio focus
-                        // This ensures notifications are never completely blocked due to audio focus issues
-                        return true
-                    }
+                    InAppLogger.log("MediaBehavior", "Audio focus granted for duck mode (usage=${resolveTtsUsage()})")
                 }
-                    
-                    // Step 2: Fall back to manual ducking (existing implementation)
-                    val ducked = duckMediaVolume()
-                    
-                    // Log device and audio info for diagnostics
-                    val voicePrefs = getSharedPreferences("VoiceSettings", MODE_PRIVATE)
-                    val ttsUsage = voicePrefs.getInt("audio_usage", android.media.AudioAttributes.USAGE_ASSISTANT)
-                    val ttsContent = voicePrefs.getInt("content_type", android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
-                    val finalVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-                    val finalMaxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-                    InAppLogger.log("MediaBehavior", "Manual duck mode triggered. Device: ${android.os.Build.MODEL}, Android: ${android.os.Build.VERSION.SDK_INT}, TTS usage: $ttsUsage, TTS content: $ttsContent, Media volume: $finalVolume/$finalMaxVolume")
-                    
-                    // Warn if TTS is routed through the same stream as media
-                    if (ttsUsage == android.media.AudioAttributes.USAGE_MEDIA || ttsUsage == android.media.AudioAttributes.USAGE_UNKNOWN) {
-                        Log.w(TAG, "TTS may be routed through the same stream as media. Ducking may lower TTS volume as well.")
-                        InAppLogger.log("MediaBehavior", "Warning: TTS may be affected by ducking on this device. TTS usage: $ttsUsage")
-                    }
-                    
-                    return ducked
-                }
+                true
             }
             "silence" -> {
                 Log.d(TAG, "Media behavior: SILENCE - not speaking due to active media")
                 InAppLogger.log("MediaBehavior", "Silenced notification from $appName due to active media")
-                return false
+                false
             }
-            else -> {
-                Log.d(TAG, "Unknown media behavior: $mediaBehavior, defaulting to ignore")
-                return true
-            }
+            else -> true
         }
     }
-    
-    private fun requestAudioFocusForSpeech(): Boolean {
-        Log.d(TAG, "Requesting audio focus for pause mode - Device: ${android.os.Build.MODEL}, Android: ${android.os.Build.VERSION.SDK_INT}")
-        InAppLogger.log("MediaBehavior", "Requesting audio focus for pause mode on ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.SDK_INT})")
-        
+
+    private fun requestPauseAudioFocus(): Boolean {
+        val usage = android.media.AudioAttributes.USAGE_MEDIA
+        val contentType = android.media.AudioAttributes.CONTENT_TYPE_SPEECH
+
         return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            // Try multiple audio focus strategies for better compatibility
-            val strategies = listOf(
-                // Strategy 1: Use ASSISTANT usage (most likely to be granted to notification services)
-                AudioFocusStrategy(
-                    usage = android.media.AudioAttributes.USAGE_ASSISTANT,
-                    contentType = android.media.AudioAttributes.CONTENT_TYPE_SPEECH,
-                    focusGain = android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
-                    description = "Assistant usage with transient focus"
-                ),
-                // Strategy 2: Use NOTIFICATION usage (alternative for notification services)
-                AudioFocusStrategy(
-                    usage = android.media.AudioAttributes.USAGE_NOTIFICATION,
-                    contentType = android.media.AudioAttributes.CONTENT_TYPE_SPEECH,
-                    focusGain = android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
-                    description = "Notification usage with transient focus"
-                ),
-                // Strategy 3: Use ASSISTANT with MAY_DUCK (less aggressive, more likely to be granted)
-                AudioFocusStrategy(
-                    usage = android.media.AudioAttributes.USAGE_ASSISTANT,
-                    contentType = android.media.AudioAttributes.CONTENT_TYPE_SPEECH,
-                    focusGain = android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK,
-                    description = "Assistant usage with transient may-duck focus"
-                ),
-                // Strategy 4: Use NOTIFICATION with MAY_DUCK
-                AudioFocusStrategy(
-                    usage = android.media.AudioAttributes.USAGE_NOTIFICATION,
-                    contentType = android.media.AudioAttributes.CONTENT_TYPE_SPEECH,
-                    focusGain = android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK,
-                    description = "Notification usage with transient may-duck focus"
-                )
-            )
-            
-            // Try each strategy until one works
-            for (strategy in strategies) {
-                val result = tryAudioFocusStrategy(strategy)
-                if (result) {
-                    Log.d(TAG, "Audio focus granted using strategy: ${strategy.description}")
-                    InAppLogger.log("MediaBehavior", "Audio focus granted using: ${strategy.description}")
-                    return true
-                } else {
-                    Log.d(TAG, "Audio focus denied for strategy: ${strategy.description}")
-                    InAppLogger.log("MediaBehavior", "Audio focus denied for: ${strategy.description}")
-                }
-            }
-            
-            // If all strategies fail, log detailed diagnostic information
-            logAudioFocusDiagnostics()
-            false
-            
+            val attributes = android.media.AudioAttributes.Builder()
+                .setUsage(usage)
+                .setContentType(contentType)
+                .build()
+
+            audioFocusRequest = android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(attributes)
+                .setOnAudioFocusChangeListener { handleAudioFocusChange(it) }
+                .setAcceptsDelayedFocusGain(false)
+                .setWillPauseWhenDucked(true)
+                .build()
+
+            val result = audioManager.requestAudioFocus(audioFocusRequest!!)
+            Log.d(TAG, "Pause audio focus request result (usage=$usage): $result")
+            result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         } else {
-            // Use deprecated method for older versions
             @Suppress("DEPRECATION")
             val result = audioManager.requestAudioFocus(
                 { focusChange -> handleAudioFocusChange(focusChange) },
                 android.media.AudioManager.STREAM_MUSIC,
                 android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
             )
-            val granted = result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-            Log.d(TAG, "Legacy audio focus request result: $result (granted: $granted)")
-            InAppLogger.log("MediaBehavior", "Legacy audio focus result: $result (granted: $granted)")
-            granted
+            Log.d(TAG, "Legacy pause audio focus request result: $result")
+            result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         }
     }
-    
-    private data class AudioFocusStrategy(
-        val usage: Int,
-        val contentType: Int,
-        val focusGain: Int,
-        val description: String
-    )
-    
-    private fun tryAudioFocusStrategy(strategy: AudioFocusStrategy): Boolean {
-        return try {
-            // Create audio attributes
-            val audioAttributes = android.media.AudioAttributes.Builder()
-                .setUsage(strategy.usage)
-                .setContentType(strategy.contentType)
-                .build()
-            
-            // Create focus request
-            audioFocusRequest = android.media.AudioFocusRequest.Builder(strategy.focusGain)
-                .setAudioAttributes(audioAttributes)
-                .setOnAudioFocusChangeListener { focusChange ->
-                    handleAudioFocusChange(focusChange)
+
+    private fun handleLegacyMediaBehavior(appName: String): Boolean {
+        return when (mediaBehavior) {
+            "ignore" -> true
+            "pause" -> {
+                if (tryMediaSessionPause()) {
+                    InAppLogger.log("MediaBehavior", "Legacy pause via media session for $appName")
+                    return true
                 }
-                .setAcceptsDelayedFocusGain(false) // We want immediate response for notifications
-                .setWillPauseWhenDucked(false) // We don't want our TTS to be ducked
-                .build()
-            
-            // Request audio focus
-            val result = audioManager.requestAudioFocus(audioFocusRequest!!)
-            result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-            
+
+                val focusGranted = requestSpeechAudioFocus(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                if (focusGranted) {
+                    InAppLogger.log("MediaBehavior", "Legacy pause acquired transient focus for $appName")
+                    return true
+                }
+
+                if (isMediaFallbackDisabled(this)) {
+                    Log.w(TAG, "Legacy pause fallback disabled - continuing without stopping media")
+                    InAppLogger.log("MediaBehavior", "Legacy pause fallback disabled; continuing for $appName")
+                    return true
+                }
+
+                if (trySoftPauseFallback()) {
+                    InAppLogger.log("MediaBehavior", "Soft pause fallback applied for $appName")
+                    return true
+                }
+
+                Log.w(TAG, "Soft pause fallback failed - reading without audio focus")
+                InAppLogger.log("MediaBehavior", "Soft pause fallback failed for $appName - reading anyway")
+                true
+            }
+            "duck" -> {
+                val focusGranted = requestSpeechAudioFocus(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                if (focusGranted) {
+                    InAppLogger.log("MediaBehavior", "Legacy duck granted focus for $appName")
+                    return true
+                }
+
+                if (isMediaFallbackDisabled(this)) {
+                    Log.w(TAG, "Legacy duck fallback disabled - continuing without ducking")
+                    InAppLogger.log("MediaBehavior", "Legacy duck fallback disabled; continuing for $appName")
+                    return true
+                }
+
+                val ducked = duckMediaVolume()
+                if (ducked) {
+                    InAppLogger.log("MediaBehavior", "Manual ducking applied for $appName")
+                } else {
+                    Log.w(TAG, "Manual ducking failed - reading without ducking")
+                    InAppLogger.log("MediaBehavior", "Manual ducking failed for $appName - reading anyway")
+                }
+                true
+            }
+            "silence" -> {
+                Log.d(TAG, "Media behavior: SILENCE (legacy) - not speaking due to active media")
+                InAppLogger.log("MediaBehavior", "Legacy mode silenced notification from $appName due to active media")
+                false
+            }
+            else -> true
+        }
+    }
+
+    private fun tryMediaSessionPause(): Boolean {
+        return try {
+            val mediaSessionManager =
+                getSystemService(Context.MEDIA_SESSION_SERVICE) as? MediaSessionManager ?: return false
+            val componentName = ComponentName(this, NotificationReaderService::class.java)
+            val controllers = mediaSessionManager.getActiveSessions(componentName)
+            if (controllers.isEmpty()) {
+                Log.d(TAG, "No active media sessions detected for legacy pause")
+                return false
+            }
+
+            pausedMediaSessions.clear()
+            var pausedAny = false
+            controllers.forEach { controller ->
+                val playbackState = controller.playbackState
+                if (playbackState != null && playbackState.state == PlaybackState.STATE_PLAYING) {
+                    try {
+                        controller.transportControls.pause()
+                        pausedMediaSessions.add(controller)
+                        pausedAny = true
+                        Log.d(TAG, "Paused media session for ${controller.packageName}")
+                    } catch (controllerError: Exception) {
+                        Log.e(TAG, "Failed to pause media session ${controller.packageName}", controllerError)
+                    }
+                }
+            }
+
+            pausedAny
+        } catch (security: SecurityException) {
+            Log.e(TAG, "Unable to access media sessions for legacy pause (missing permission?)", security)
+            false
         } catch (e: Exception) {
-            Log.e(TAG, "Exception during audio focus strategy: ${strategy.description}", e)
-            InAppLogger.logError("MediaBehavior", "Audio focus strategy exception: ${e.message}")
+            Log.e(TAG, "Unexpected error during media session pause", e)
             false
         }
     }
-    
+
+    private fun resumeMediaSessions() {
+        if (pausedMediaSessions.isEmpty()) {
+            return
+        }
+
+        val iterator = pausedMediaSessions.iterator()
+        while (iterator.hasNext()) {
+            val controller = iterator.next()
+            try {
+                controller.transportControls.play()
+                Log.d(TAG, "Resumed media session for ${controller.packageName}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to resume media session ${controller.packageName}", e)
+            }
+        }
+
+        pausedMediaSessions.clear()
+        InAppLogger.log("MediaBehavior", "Resumed paused media sessions after TTS completion")
+    }
+
+    private fun trySoftPauseFallback(): Boolean {
+        return try {
+            val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            if (originalMusicVolume == -1) {
+                originalMusicVolume = currentVolume
+                Log.d(TAG, "Stored original music volume $currentVolume for soft pause fallback")
+            }
+
+            val softVolume = (maxVolume * 0.15f).toInt().coerceAtLeast(1)
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, softVolume, 0)
+            Log.d(TAG, "Soft pause fallback lowered STREAM_MUSIC from $currentVolume to $softVolume (max=$maxVolume)")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Soft pause fallback failed", e)
+            false
+        }
+    }
 
     
-    private fun logAudioFocusDiagnostics() {
-        try {
-            // Log current audio state
-            val isMusicActive = audioManager.isMusicActive
-            val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-            val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-            val ringerMode = audioManager.ringerMode
-            
-            // Log TTS settings
-            val voicePrefs = getSharedPreferences("VoiceSettings", MODE_PRIVATE)
-            val ttsUsage = voicePrefs.getInt("audio_usage", android.media.AudioAttributes.USAGE_ASSISTANT)
-            val ttsContent = voicePrefs.getInt("content_type", android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
-            
-            val diagnosticInfo = """
-                Audio Focus Diagnostics:
-                - Device: ${android.os.Build.MODEL}
-                - Android: ${android.os.Build.VERSION.SDK_INT}
-                - Music Active: $isMusicActive
-                - Media Volume: $currentVolume/$maxVolume
-                - Ringer Mode: $ringerMode
-                - TTS Usage: $ttsUsage
-                - TTS Content: $ttsContent
-                - All audio focus strategies failed
-            """.trimIndent()
-            
-            Log.w(TAG, diagnosticInfo)
-            InAppLogger.log("MediaBehavior", "Audio focus diagnostics: Device=${android.os.Build.MODEL}, Android=${android.os.Build.VERSION.SDK_INT}, MusicActive=$isMusicActive, Volume=$currentVolume/$maxVolume")
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error logging audio focus diagnostics", e)
+    private fun resolveTtsUsage(): Int {
+        val prefs = voiceSettingsPrefs ?: getSharedPreferences("VoiceSettings", MODE_PRIVATE)
+        val index = prefs?.getInt("audio_usage", DEFAULT_TTS_USAGE_INDEX) ?: DEFAULT_TTS_USAGE_INDEX
+        return when (index) {
+            0 -> android.media.AudioAttributes.USAGE_MEDIA
+            1 -> android.media.AudioAttributes.USAGE_NOTIFICATION
+            2 -> android.media.AudioAttributes.USAGE_ALARM
+            3 -> android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION
+            4 -> android.media.AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE
+            else -> android.media.AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE
+        }
+    }
+
+    private fun requestSpeechAudioFocus(focusGain: Int): Boolean {
+        val baseUsage = resolveTtsUsage()
+        val (usage, contentType) = AccessibilityUtils.getEnhancedAudioAttributes(
+            this,
+            baseUsage,
+            android.media.AudioAttributes.CONTENT_TYPE_SPEECH
+        )
+
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val attributes = android.media.AudioAttributes.Builder()
+                .setUsage(usage)
+                .setContentType(contentType)
+                .build()
+
+            audioFocusRequest = android.media.AudioFocusRequest.Builder(focusGain)
+                .setAudioAttributes(attributes)
+                .setOnAudioFocusChangeListener { handleAudioFocusChange(it) }
+                .setAcceptsDelayedFocusGain(false)
+                .setWillPauseWhenDucked(false)
+                .build()
+
+            val result = audioManager.requestAudioFocus(audioFocusRequest!!)
+            Log.d(TAG, "Audio focus request result (gain=$focusGain, usage=$usage): $result")
+            result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        } else {
+            val legacyGain = if (focusGain == android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK) {
+                android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+            } else {
+                android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+            }
+            @Suppress("DEPRECATION")
+            val result = audioManager.requestAudioFocus(
+                { focusChange -> handleAudioFocusChange(focusChange) },
+                android.media.AudioManager.STREAM_MUSIC,
+                legacyGain
+            )
+            Log.d(TAG, "Legacy audio focus request result: $result")
+            result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         }
     }
     
@@ -3372,285 +3353,6 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
      * ACCESSIBILITY ENHANCEMENT: When accessibility permission is granted, this method
      * also attempts to send direct media control intents for more reliable pausing.
      */
-    private fun tryMediaSessionPause(): Boolean {
-        return try {
-            Log.d(TAG, "Attempting direct media session control to pause media")
-            InAppLogger.log("MediaBehavior", "Attempting direct media session control")
-            
-            // ACCESSIBILITY ENHANCEMENT: Try direct media control intents first if accessibility is available
-            if (AccessibilityUtils.shouldUseEnhancedAudioControl(this)) {
-                Log.d(TAG, "Accessibility permission available - attempting enhanced media control")
-                InAppLogger.log("MediaBehavior", "Accessibility permission available - using enhanced media control")
-                
-                val enhancedPauseSuccess = tryAccessibilityEnhancedMediaPause()
-                if (enhancedPauseSuccess) {
-                    Log.d(TAG, "Accessibility-enhanced media pause successful")
-                    InAppLogger.log("MediaBehavior", "Accessibility-enhanced media pause successful")
-                    return true
-                }
-            }
-            
-            val mediaSessionManager = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
-            // Use the notification listener service-specific method to bypass permission restrictions
-            val notificationListenerComponent = ComponentName(this, NotificationReaderService::class.java)
-            val controllers = mediaSessionManager.getActiveSessions(notificationListenerComponent)
-            
-            if (controllers.isEmpty()) {
-                Log.d(TAG, "No active media sessions found")
-                InAppLogger.log("MediaBehavior", "No active media sessions found")
-                false
-            } else {
-                var pausedAny = false
-                pausedMediaSessions.clear() // Clear previous sessions
-                
-                for (controller in controllers) {
-                    try {
-                        val playbackState = controller.playbackState
-                        if (playbackState != null && playbackState.state == android.media.session.PlaybackState.STATE_PLAYING) {
-                            Log.d(TAG, "Pausing media session: ${controller.packageName}")
-                            InAppLogger.log("MediaBehavior", "Pausing media session: ${controller.packageName}")
-                            
-                            controller.transportControls.pause()
-                            pausedMediaSessions.add(controller)
-                            pausedAny = true
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to pause media session: ${controller.packageName}", e)
-                        InAppLogger.logError("MediaBehavior", "Failed to pause media session: ${controller.packageName} - ${e.message}")
-                    }
-                }
-                
-                if (pausedAny) {
-                    Log.d(TAG, "Successfully paused ${pausedMediaSessions.size} media session(s)")
-                    InAppLogger.log("MediaBehavior", "Successfully paused ${pausedMediaSessions.size} media session(s)")
-                    true
-                } else {
-                    Log.d(TAG, "No playing media sessions found to pause")
-                    InAppLogger.log("MediaBehavior", "No playing media sessions found to pause")
-                    false
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Media session control failed", e)
-            InAppLogger.logError("MediaBehavior", "Media session control failed: ${e.message}")
-            false
-        }
-    }
-    
-    /**
-     * ACCESSIBILITY ENHANCED: Attempt to pause media using direct media control intents
-     * 
-     * This method uses accessibility service privileges to send direct media control
-     * intents, which can be more reliable than media session control on some devices.
-     * 
-     * @return true if media was successfully paused, false otherwise
-     */
-    private fun tryAccessibilityEnhancedMediaPause(): Boolean {
-        return try {
-            Log.d(TAG, "Attempting accessibility-enhanced media pause with direct intents")
-            InAppLogger.log("MediaBehavior", "Attempting accessibility-enhanced media pause")
-            
-            // Send direct media pause intent - this works better with accessibility permission
-            val pauseIntent = Intent(android.content.Intent.ACTION_MEDIA_BUTTON).apply {
-                putExtra(android.content.Intent.EXTRA_KEY_EVENT, 
-                    android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE))
-            }
-            
-            // Send the intent to all media apps
-            sendBroadcast(pauseIntent)
-            
-            // Also try the play/pause toggle intent
-            val playPauseIntent = Intent(android.content.Intent.ACTION_MEDIA_BUTTON).apply {
-                putExtra(android.content.Intent.EXTRA_KEY_EVENT,
-                    android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
-            }
-            
-            sendBroadcast(playPauseIntent)
-            
-            Log.d(TAG, "Accessibility-enhanced media pause intents sent")
-            InAppLogger.log("MediaBehavior", "Accessibility-enhanced media pause intents sent")
-            
-            // Give the system time to process the intents
-            Thread.sleep(100)
-            
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Accessibility-enhanced media pause failed", e)
-            InAppLogger.logError("MediaBehavior", "Accessibility-enhanced media pause failed: ${e.message}")
-            false
-        }
-    }
-    
-    /**
-     * Resume previously paused media sessions.
-     * Called after TTS completes to restore media playback.
-     */
-    private fun resumeMediaSessions() {
-        if (pausedMediaSessions.isEmpty()) {
-            return
-        }
-        
-        try {
-            Log.d(TAG, "Resuming ${pausedMediaSessions.size} media session(s)")
-            InAppLogger.log("MediaBehavior", "Resuming ${pausedMediaSessions.size} media session(s)")
-            
-            for (controller in pausedMediaSessions) {
-                try {
-                    controller.transportControls.play()
-                    Log.d(TAG, "Resumed media session: ${controller.packageName}")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to resume media session: ${controller.packageName}", e)
-                    InAppLogger.logError("MediaBehavior", "Failed to resume media session: ${controller.packageName} - ${e.message}")
-                }
-            }
-            
-            pausedMediaSessions.clear()
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error resuming media sessions", e)
-            InAppLogger.logError("MediaBehavior", "Error resuming media sessions: ${e.message}")
-        }
-    }
-    
-    /**
-     * Fallback strategy for pause mode when audio focus is denied.
-     * Attempts to reduce media volume significantly as a "soft pause" alternative.
-     */
-    private fun trySoftPauseFallback(): Boolean {
-        return try {
-            Log.d(TAG, "Attempting soft pause fallback - reducing media volume significantly")
-            InAppLogger.log("MediaBehavior", "Attempting soft pause fallback")
-            
-            // Get current media volume
-            val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-            val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-            
-            // Store original volume for restoration
-            if (originalMusicVolume == -1) {
-                originalMusicVolume = currentVolume
-            }
-            
-            // Reduce volume to 10% as a "soft pause" (much more aggressive than ducking)
-            val softPauseVolume = (maxVolume * 10 / 100).coerceAtLeast(1)
-            
-            // Apply volume reduction
-            audioManager.setStreamVolume(
-                android.media.AudioManager.STREAM_MUSIC,
-                softPauseVolume,
-                0
-            )
-            
-            Log.d(TAG, "Soft pause applied - reduced volume from $currentVolume to $softPauseVolume (max: $maxVolume)")
-            InAppLogger.log("MediaBehavior", "Soft pause applied - volume reduced to 10% (will be restored after TTS)")
-            
-            true
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Soft pause fallback failed", e)
-            InAppLogger.logError("MediaBehavior", "Soft pause fallback failed: ${e.message}")
-            false
-        }
-    }
-    
-    /**
-     * Log detailed diagnostics for pause mode failures.
-     * This helps users understand why pause mode might not work on their device.
-     */
-    private fun logPauseModeDiagnostics() {
-        try {
-            val deviceInfo = """
-                Pause Mode Diagnostics:
-                - Device: ${android.os.Build.MODEL}
-                - Manufacturer: ${android.os.Build.MANUFACTURER}
-                - Android Version: ${android.os.Build.VERSION.SDK_INT}
-                - Android Release: ${android.os.Build.VERSION.RELEASE}
-                - Audio Focus Strategies Tried: 4
-                - All Strategies Failed: Yes
-                - Possible Causes:
-                  * Device has restrictive audio focus policies
-                  * Notification listener services not granted audio focus
-                  * Custom ROM or manufacturer modifications
-                  * Android 13+ background service limitations
-                - Recommendation: Try "Lower Audio" mode instead
-            """.trimIndent()
-            
-            Log.w(TAG, deviceInfo)
-            InAppLogger.log("MediaBehavior", "Pause mode failed on ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.SDK_INT}) - all audio focus strategies denied")
-            
-            // Check if this is a known problematic device
-            checkKnownProblematicDevice()
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error logging pause mode diagnostics", e)
-        }
-    }
-    
-    /**
-     * Check if the current device is known to have audio focus issues.
-     * Provides specific guidance for known problematic devices.
-     */
-    private fun checkKnownProblematicDevice() {
-        val manufacturer = android.os.Build.MANUFACTURER.lowercase()
-        val model = android.os.Build.MODEL.lowercase()
-        val androidVersion = android.os.Build.VERSION.SDK_INT
-        
-        val knownIssues = mutableListOf<String>()
-        
-        // Check for known problematic manufacturers
-        when {
-            manufacturer.contains("samsung") -> {
-                knownIssues.add("Samsung devices often have restrictive audio focus policies")
-                if (androidVersion >= 33) {
-                    knownIssues.add("Android 13+ on Samsung has additional background service restrictions")
-                }
-            }
-            manufacturer.contains("xiaomi") || manufacturer.contains("redmi") || manufacturer.contains("poco") -> {
-                knownIssues.add("Xiaomi devices frequently block audio focus for notification services")
-                knownIssues.add("MIUI may have additional audio focus restrictions")
-            }
-            manufacturer.contains("huawei") || manufacturer.contains("honor") -> {
-                knownIssues.add("Huawei/Honor devices often restrict audio focus for background services")
-                knownIssues.add("EMUI/HarmonyOS may block audio focus requests")
-            }
-            manufacturer.contains("oneplus") -> {
-                knownIssues.add("OnePlus devices may have OxygenOS-specific audio focus limitations")
-            }
-            manufacturer.contains("oppo") || manufacturer.contains("realme") -> {
-                knownIssues.add("OPPO/Realme devices often have ColorOS audio focus restrictions")
-            }
-            manufacturer.contains("vivo") -> {
-                knownIssues.add("Vivo devices may have FuntouchOS audio focus limitations")
-            }
-        }
-        
-        // Check for specific problematic models
-        when {
-            model.contains("pixel") && androidVersion >= 33 -> {
-                knownIssues.add("Pixel devices on Android 13+ have stricter background service policies")
-            }
-            model.contains("galaxy") && androidVersion >= 33 -> {
-                knownIssues.add("Samsung Galaxy devices on Android 13+ have additional restrictions")
-            }
-        }
-        
-        // Log specific guidance for known issues
-        if (knownIssues.isNotEmpty()) {
-            val guidance = """
-                Known Device Issues Detected:
-                ${knownIssues.joinToString("\n") { "• $it" }}
-                
-                Recommendations:
-                • Try "Lower Audio" mode instead of "Pause" mode
-                • Ensure SpeakThat has notification access permissions
-                • Check device-specific battery optimization settings
-                • Consider disabling battery optimization for SpeakThat
-                • Some devices require manual media pause during notifications
-            """.trimIndent()
-            
-            Log.w(TAG, guidance)
-            InAppLogger.log("MediaBehavior", "Known device issues detected: ${knownIssues.joinToString(", ")}")
-        }
-    }
     
     private fun requestAudioFocusForVoiceCall(): Boolean {
         return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -3811,7 +3513,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             if (audioFocusRequest == null) {
                 Log.d(TAG, "No audio focus request active - requesting new focus to maintain TTS volume")
                 InAppLogger.log("MediaBehavior", "Requesting new audio focus to maintain TTS volume")
-                requestAudioFocusForSpeech()
+                requestSpeechAudioFocus(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
             }
             
             // Additional safety measure: ensure that the TTS volume is not being reduced by the system
@@ -3846,7 +3548,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 if (audioFocusRequest == null) {
                     Log.d(TAG, "Audio focus request lost during TTS - requesting new focus")
                     InAppLogger.log("MediaBehavior", "Audio focus request lost during TTS - requesting new focus")
-                    requestAudioFocusForSpeech()
+                    requestSpeechAudioFocus(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                 }
                 
                 // Schedule the next check
@@ -3879,7 +3581,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             if (audioFocusRequest == null) {
                 Log.d(TAG, "No audio focus request active - requesting new focus to maintain TTS volume")
                 InAppLogger.log("MediaBehavior", "Requesting new audio focus to maintain TTS volume")
-                requestAudioFocusForSpeech()
+                requestSpeechAudioFocus(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
             }
         }
     }
@@ -4917,54 +4619,16 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     }
     
     private fun cleanupMediaBehavior() {
-        when (mediaBehavior) {
-            "pause" -> {
-                // Resume media sessions if we paused them via direct control
-                if (pausedMediaSessions.isNotEmpty()) {
-                    Log.d(TAG, "Pause mode cleanup: resuming media sessions")
-                    InAppLogger.log("MediaBehavior", "Resuming media sessions after TTS")
-                    resumeMediaSessions()
-                } else {
-                    // Release audio focus to allow media to resume (fallback approach)
-                    releaseAudioFocus()
-                    
-                    // If we used soft pause fallback, restore the volume
-                    if (originalMusicVolume != -1) {
-                        Log.d(TAG, "Pause mode cleanup: restoring volume after soft pause fallback")
-                        InAppLogger.log("MediaBehavior", "Restoring volume after soft pause fallback")
-                        restoreMediaVolume()
-                    }
-                }
-            }
-            "duck" -> {
-                // Clean up enhanced ducking first if it was used
-                if (isUsingEnhancedDucking) {
-                    releaseEnhancedDucking()
-                } else {
-                    // Restore original media volume for manual ducking
-                    restoreMediaVolume()
-                }
-                
-                // Clean up smooth ducking if it was used
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && isUsingVolumeShaper) {
-                    Log.d(TAG, "Cleaning up smooth ducking and ensuring volume restoration")
-                    // Force immediate restoration if smooth restoration didn't complete
-                    if (originalMusicVolume != -1) {
-                        try {
-                            audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, originalMusicVolume, 0)
-                            Log.d(TAG, "Force-restored volume to $originalMusicVolume during cleanup")
-                            originalMusicVolume = -1
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to force-restore volume during cleanup", e)
-                        }
-                    }
-                    cleanupVolumeShaper()
-                }
-            }
-            // "ignore" and "silence" don't need cleanup
+        releaseAudioFocus()
+
+        if (legacyDuckingEnabled || pausedMediaSessions.isNotEmpty()) {
+            resumeMediaSessions()
         }
-        
-        // Restore original audio mode if it was changed for speakerphone
+
+        if (legacyDuckingEnabled || originalMusicVolume != -1) {
+            restoreMediaVolume()
+        }
+
         if (originalAudioMode != -1) {
             try {
                 audioManager.mode = originalAudioMode
@@ -4974,81 +4638,6 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to restore audio mode during cleanup", e)
                 InAppLogger.logError("Service", "Failed to restore audio mode: ${e.message}")
-            }
-        }
-        
-        // TRICK: Always restore TTS volume compensation during cleanup
-        restoreTtsVolumeCompensation()
-    }
-    
-    /**
-     * Clean up media behavior with delayed VolumeShaper cleanup to allow smooth restoration to complete.
-     * Used when TTS completes normally to avoid race condition between restoration and cleanup.
-     */
-    private fun cleanupMediaBehaviorDelayed() {
-        when (mediaBehavior) {
-            "pause" -> {
-                // Resume media sessions if we paused them via direct control
-                if (pausedMediaSessions.isNotEmpty()) {
-                    Log.d(TAG, "Pause mode delayed cleanup: resuming media sessions")
-                    InAppLogger.log("MediaBehavior", "Resuming media sessions after TTS (delayed)")
-                    resumeMediaSessions()
-                } else {
-                    // Release audio focus to allow media to resume (fallback approach)
-                    releaseAudioFocus()
-                    
-                    // If we used soft pause fallback, restore the volume
-                    if (originalMusicVolume != -1) {
-                        Log.d(TAG, "Pause mode delayed cleanup: restoring volume after soft pause fallback")
-                        InAppLogger.log("MediaBehavior", "Restoring volume after soft pause fallback (delayed)")
-                        restoreMediaVolume()
-                    }
-                }
-            }
-            "duck" -> {
-                // Clean up enhanced ducking first if it was used
-                if (isUsingEnhancedDucking) {
-                    releaseEnhancedDucking()
-                } else {
-                    // Restore original media volume for manual ducking
-                    restoreMediaVolume()
-                }
-                
-                // Delay VolumeShaper cleanup to allow smooth restoration to complete
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && isUsingVolumeShaper) {
-                    Log.d(TAG, "Scheduling delayed VolumeShaper cleanup to allow smooth restoration")
-                    
-                    // Schedule cleanup after smooth restoration should complete (300ms + safety buffer)
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        Log.d(TAG, "Executing delayed VolumeShaper cleanup")
-                        
-                        // Final safety net - force immediate restoration if smooth restoration didn't complete
-                        if (originalMusicVolume != -1) {
-                            try {
-                                audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, originalMusicVolume, 0)
-                                Log.d(TAG, "Force-restored volume to $originalMusicVolume during delayed cleanup")
-                                originalMusicVolume = -1
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Failed to force-restore volume during delayed cleanup", e)
-                            }
-                        }
-                        cleanupVolumeShaper()
-                    }, 800) // Wait longer than restoration duration (300ms) + safety buffer
-                }
-            }
-            // "ignore" and "silence" don't need cleanup
-        }
-        
-        // Restore original audio mode if it was changed for speakerphone
-        if (originalAudioMode != -1) {
-            try {
-                audioManager.mode = originalAudioMode
-                Log.d(TAG, "Restored audio mode to $originalAudioMode during delayed cleanup")
-                InAppLogger.log("Service", "Restored audio mode to $originalAudioMode during delayed cleanup")
-                originalAudioMode = -1
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to restore audio mode during delayed cleanup", e)
-                InAppLogger.logError("Service", "Failed to restore audio mode during delayed cleanup: ${e.message}")
             }
         }
     }
@@ -5534,11 +5123,10 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                         Log.e(TAG, "Error tracking notification read", e)
                     }
                     
-                    // Clean up media behavior effects with proper delay to avoid premature volume reduction
-                    // This allows the TTS to complete naturally and gives time for any audio effects to settle
+                    // Clean up media behavior effects shortly after speech completes
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        cleanupMediaBehaviorDelayed()
-                    }, 1000) // 1 second delay to ensure TTS is fully complete
+                        cleanupMediaBehavior()
+                    }, 250)
                     
                     // Process next item in queue if any
                     processNotificationQueue()
@@ -5687,10 +5275,14 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 InAppLogger.log("Service", "Cooldown settings updated - apps: ${appCooldownSettings.size}")
             }
             KEY_SPEECH_TEMPLATE -> {
-                // Reload speech template
-                speechTemplate = sharedPreferences?.getString(KEY_SPEECH_TEMPLATE, "{app} notified you: {content}") ?: "{app} notified you: {content}"
-                Log.d(TAG, "Speech template updated")
-                InAppLogger.log("Service", "Speech template updated")
+                refreshSpeechTemplateState()
+                Log.d(TAG, "Speech template updated - key=$speechTemplateKey")
+                InAppLogger.log("Service", "Speech template updated - key=$speechTemplateKey")
+            }
+            KEY_SPEECH_TEMPLATE_KEY -> {
+                speechTemplateKey = sharedPreferences?.getString(KEY_SPEECH_TEMPLATE_KEY, speechTemplateKey) ?: speechTemplateKey
+                Log.d(TAG, "Speech template key updated: $speechTemplateKey")
+                InAppLogger.log("Service", "Speech template key updated: $speechTemplateKey")
             }
             KEY_PERSISTENT_NOTIFICATION -> {
                 // Handle persistent notification setting change
@@ -5707,6 +5299,11 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 val isNotificationWhileReadingEnabled = sharedPreferences?.getBoolean(KEY_NOTIFICATION_WHILE_READING, false) ?: false
                 Log.d(TAG, "Notification while reading setting updated: $isNotificationWhileReadingEnabled")
                 // Note: Reading notifications are shown/hidden dynamically during TTS, so no immediate action needed here
+            }
+            "enable_legacy_ducking" -> {
+                legacyDuckingEnabled = sharedPreferences?.getBoolean("enable_legacy_ducking", false) ?: false
+                Log.d(TAG, "Legacy ducking toggled: $legacyDuckingEnabled")
+                InAppLogger.log("MediaBehavior", "Legacy ducking ${if (legacyDuckingEnabled) "enabled" else "disabled"} via dev settings")
             }
         }
     }
@@ -5764,12 +5361,8 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             "Unknown"
         }
         
-        // Handle varied template by randomly selecting a format
-        val templateToUse = if (speechTemplate == "VARIED") {
-            getLocalizedVariedFormatsImproved().random()
-        } else {
-            speechTemplate
-        }
+        // Handle template localization + varied/custom modes
+        val templateToUse = resolveSpeechTemplateForPlayback()
         
         // Process the template with all available placeholders
         var processedTemplate = templateToUse
@@ -5797,8 +5390,50 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
      * Get localized TTS string based on user's TTS language setting
      */
     private fun getLocalizedTtsString(stringResId: Int): String {
-        val ttsLanguageCode = voiceSettingsPrefs?.getString("tts_language", "system") ?: "system"
-        return TtsLanguageManager.getLocalizedTtsString(this, ttsLanguageCode, stringResId)
+        return TtsLanguageManager.getLocalizedTtsString(this, getCurrentTtsLanguageCode(), stringResId)
+    }
+
+    private fun getCurrentTtsLanguageCode(): String {
+        return voiceSettingsPrefs?.getString("tts_language", "system") ?: "system"
+    }
+
+    private fun refreshSpeechTemplateState() {
+        val template = sharedPreferences?.getString(KEY_SPEECH_TEMPLATE, "{app} notified you: {content}") ?: "{app} notified you: {content}"
+        speechTemplate = template
+        val storedKey = sharedPreferences?.getString(KEY_SPEECH_TEMPLATE_KEY, null)
+        speechTemplateKey = when {
+            !storedKey.isNullOrBlank() -> storedKey
+            template == SpeechTemplateConstants.TEMPLATE_KEY_VARIED -> SpeechTemplateConstants.TEMPLATE_KEY_VARIED
+            template == "VARIED" -> SpeechTemplateConstants.TEMPLATE_KEY_VARIED // Legacy literal storage
+            else -> TtsLanguageManager.findMatchingStringKey(this, template, SpeechTemplateConstants.RESOURCE_TEMPLATE_KEYS)
+                ?: SpeechTemplateConstants.TEMPLATE_KEY_CUSTOM
+        }
+        
+        if (storedKey == null) {
+            sharedPreferences?.edit()?.putString(KEY_SPEECH_TEMPLATE_KEY, speechTemplateKey)?.apply()
+        }
+        
+        Log.d(TAG, "Speech template state refreshed - key=$speechTemplateKey")
+    }
+    
+    private fun isResourceTemplateKey(key: String?): Boolean {
+        if (key.isNullOrBlank()) {
+            return false
+        }
+        return SpeechTemplateConstants.RESOURCE_TEMPLATE_KEYS.contains(key)
+    }
+    
+    private fun resolveSpeechTemplateForPlayback(): String {
+        return when {
+            speechTemplateKey == SpeechTemplateConstants.TEMPLATE_KEY_VARIED -> getLocalizedVariedFormatsImproved().random()
+            speechTemplateKey == SpeechTemplateConstants.TEMPLATE_KEY_CUSTOM -> speechTemplate
+            isResourceTemplateKey(speechTemplateKey) -> {
+                val key = speechTemplateKey ?: SpeechTemplateConstants.DEFAULT_TEMPLATE_KEY
+                TtsLanguageManager.getLocalizedTtsStringByName(this, getCurrentTtsLanguageCode(), key)
+            }
+            speechTemplate == SpeechTemplateConstants.TEMPLATE_KEY_VARIED || speechTemplate == "VARIED" -> getLocalizedVariedFormatsImproved().random()
+            else -> speechTemplate
+        }
     }
 
     /**

@@ -190,6 +190,13 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="store_update_dialog_help_message">If you want automatic updates directly from GitHub, you can download the GitHub version instead. This version is identical but includes auto-update functionality.</string>
     <string name="store_update_dialog_visit_github">Visit GitHub</string>
     <string name="store_update_dialog_got_it">Got it</string>
+    <string name="update_banner_title">Update available: %1$s</string>
+    <string name="update_banner_body">New version ready (%1$s). Tap to open the updater.</string>
+    <string name="update_banner_action">Update now</string>
+    <string name="update_notification_title">Update available: %1$s</string>
+    <string name="update_notification_text">Tap to download and install the latest version.</string>
+    <string name="update_notification_channel_name">SpeakThat Updates</string>
+    <string name="update_notification_channel_description">Alerts for new SpeakThat versions in the GitHub build.</string>
     <string name="app_description">SpeakThat! is an open-source Android Notification Reader that announces your notifications aloud using text-to-speech. Perfect for hands-free operation, accessibility, and staying informed while multitasking.</string>
     <string name="app_features">• Real-time notification reading\n• Customizable voice settings\n• Smart notification filtering\n• App-specific controls\n• Media-aware behaviour\n• Notification history\n• Shake/Wave to stop\n• Custom speech formatting\n• Dark/Light theme support\n• Conditional rules for advanced logic and schedules\n• Fully ad-free and offline functionality</string>
     <string name="developer_info">Developed with ❤️ by Mitchi, a solo developer from the UK with over 12 years of experience testing and using notification readers every day.\n\nSpeakThat! was inspired by Touchless Notifications, originally developed by DYNA Logix, and aims to carry forth the legacy of customisable notification readers.\n\nThis project was accelerated by AI-assisted programming.</string>
@@ -210,6 +217,8 @@ This feature is especially useful for accessibility, desk users, and anyone who 
 
     
     <!-- Update System -->
+    <string name="latest_update_dialog_title">Latest update</string>
+    <string name="latest_update_fallback">SpeakThat! latest update: stability polish, battery-friendly notification tweaks.</string>
     <string name="check_for_updates">Check for Updates</string>
     <string name="update_checker">Update Checker</string>
     <string name="checking_for_updates">Checking for updates...</string>
@@ -246,7 +255,6 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="update_daily">Daily</string>
     <string name="update_weekly">Weekly (recommended)</string>
     <string name="update_monthly">Monthly</string>
-    <string name="update_never">Never (manual only)</string>
     
     <!-- TTS Template Strings (for improved localization) -->
     <!-- These are complete sentence templates with placeholders for proper localization -->
@@ -681,7 +689,7 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="label_0_percent">0%</string>
     <string name="label_100_percent">100%</string>
     <string name="label_150_percent">150%</string>
-    <string name="voice_tts_volume_boost_warning">⚠️ Volume above 100% may cause audio distortion</string>
+    <string name="voice_tts_volume_boost_warning">⚠️ Volume above 100% may cause audio distortion &amp; doesn\'t work on every device</string>
     <string name="arrow_right">›</string>
     
     <!-- Main Activity Strings -->
@@ -708,8 +716,8 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="settings_rerun_onboarding_description">See the app introduction again</string>
     <string name="settings_support_title">Support &amp; Feedback</string>
     <string name="settings_support_description">Get help, report bugs, request features</string>
-    <string name="settings_donate_title">Donate</string>
-    <string name="settings_donate_description">Support development and keep the app free</string>
+    <string name="settings_donate_title">Say Thanks</string>
+    <string name="settings_donate_description">Support development and keep the app ad-free</string>
     
 
     
@@ -1458,6 +1466,7 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="dev_system_event_logging_description">Log app lifecycle and system events</string>
     <string name="dev_notification_logging">Notification Logging</string>
     <string name="dev_notification_logging_description">Log notification processing events</string>
+    <string name="dev_hacks_workarounds_title">Hacks and Workarounds</string>
     <string name="dev_disable_media_fallback">Disable Media Behavior Fallback</string>
     <string name="dev_disable_media_fallback_description">Disable fallback methods for media behavior. If a feature doesn\'t work, it won\'t try alternatives. Helps isolate issues. Note: When disabled, duck mode will fall back to pause mode if ducking fails. If both fail, notifications will still be read without audio focus.</string>
     <string name="dev_enable_legacy_ducking">Enable Legacy Duck/Pause Hacks</string>
@@ -1501,6 +1510,8 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="failed_to_clear_data">Failed to clear data: %s</string>
     <string name="persistent_notification_enabled">Persistent notification enabled</string>
     <string name="reading_notification_enabled">Reading notification enabled</string>
+    <string name="notification_while_reading_enabled">Notification while reading enabled</string>
+    <string name="notification_permission_required">Notification permission required</string>
     <string name="notification_permission_denied">Notification permission denied - feature will not work</string>
     
     <!-- AppAutoCompleteAdapter Hardcoded Strings -->
@@ -1780,5 +1791,9 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="dev_reset_statistics_title">Reset Statistics</string>
     <string name="dev_reset_statistics_message">Are you sure you want to reset all notification statistics? This action cannot be undone.</string>
     <string name="dev_reset_statistics_success">Statistics reset successfully</string>
+
+    <!-- Development: audio ducking toggle (default for all flavors) -->
+    <string name="dev_enable_audio_ducking">Enable Audio Ducking</string>
+    <string name="dev_enable_audio_ducking_description">Re-enable the Lower Audio option in Media Behaviour settings (experimental; may be unstable on some devices).</string>
     
 </resources> 

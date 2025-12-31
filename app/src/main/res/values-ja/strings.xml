@@ -235,7 +235,6 @@ SpeakThatは、テキスト読み上げを使用して通知を音声で知ら�
     <string name="update_daily">毎日</string>
     <string name="update_weekly">毎週 (推奨)</string>
     <string name="update_monthly">毎月</string>
-    <string name="update_never">しない (手動のみ)</string>
     <!-- TTS Template Strings (for improved localization) -->
     <!--
      These are complete sentence templates with placeholders for proper localization
@@ -1603,4 +1602,7 @@ Notification permission denied - SpeakThat notifications may not appear
     <!-- Behavior Settings - System Modes Group -->
     <string name="section_honor_system_modes">Honour System Modes</string>
     <string name="behavior_system_modes_description">Keep SpeakThat quiet when your device is in Do Not Disturb, on a call, or using silent or vibrate modes. Toggle each option below.</string>
+    <string name="latest_update_dialog_title">最新のアップデート</string>
+    <string name="latest_update_fallback">SpeakThat! の最新アップデート: 安定性の磨き込みと省電力な通知調整。</string>
+    <string name="dev_hacks_workarounds_title">ハックと回避策</string>
 </resources>

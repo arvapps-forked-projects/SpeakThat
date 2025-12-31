@@ -20,6 +20,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.text.TextUtils
 import android.util.Log
+import android.util.TypedValue
 import androidx.core.app.NotificationCompat
 import com.micoyc.speakthat.VoiceSettingsActivity
 import com.micoyc.speakthat.StatisticsManager
@@ -39,23 +40,22 @@ import android.os.Looper
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.view.ViewGroup
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import android.graphics.drawable.AnimatedVectorDrawable
-import android.animation.AnimatorInflater
-import android.animation.AnimatorSet
-import android.animation.ObjectAnimator
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEventListener {
     
     private lateinit var binding: ActivityMainBinding
     private var sharedPreferences: SharedPreferences? = null
+    private var updatePrefs: SharedPreferences? = null
     private var textToSpeech: TextToSpeech? = null
     private var isTtsInitialized = false
     private var isFirstLogoTap = true
     private val easterEggLines = mutableListOf<String>()
-    private var animatedLogo: AnimatedVectorDrawable? = null
     private var lastLogoTapCount: Int = 0
     
     // Shake detection
@@ -126,6 +126,19 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
             }
         }
     }
+
+    private val updatePrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        renderUpdateBannerFromCache()
+    }
+
+    /**
+     * Listen for badge selection changes (Play flavor only) so the logo updates immediately.
+     */
+    private val badgeSelectionListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == BadgeAssets.PREF_BADGE_SELECTION) {
+            updateBadgeLogo()
+        }
+    }
     
     // Sensor timeout for safety
     private var sensorTimeoutHandler: Handler? = null
@@ -144,6 +157,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         private const val REQUEST_NOTIFICATION_PERMISSION = 1001
         private const val LOW_BATTERY_THRESHOLD = 20
         private const val FULL_BATTERY_PERCENT = 99
+        private const val LATEST_UPDATE_ASSET = "latest_update.txt"
         // TRANSLATION BANNER - REMOVE WHEN NO LONGER NEEDED
     
         @JvmField
@@ -174,6 +188,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         
         // Initialize SharedPreferences
         sharedPreferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        updatePrefs = getSharedPreferences("UpdatePrefs", MODE_PRIVATE)
         
         // Initialize voice settings listener
         voiceSettingsPrefs = getSharedPreferences("VoiceSettings", MODE_PRIVATE)
@@ -181,6 +196,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         
         // Register master switch listener for Quick Settings tile sync
         sharedPreferences?.registerOnSharedPreferenceChangeListener(masterSwitchListener)
+        sharedPreferences?.registerOnSharedPreferenceChangeListener(badgeSelectionListener)
+        updatePrefs?.registerOnSharedPreferenceChangeListener(updatePrefsListener)
         
         // Apply saved theme first
         applySavedTheme()
@@ -191,12 +208,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         // Initialize view binding
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        updateBadgeLogo()
 
         // Get version number with build variant
         val packageInfo = packageManager.getPackageInfo(packageName, 0)
         val buildVariant = InAppLogger.getBuildVariantInfo()
-        val versionText = getString(R.string.version_format_with_variant, packageInfo.versionName, buildVariant)
+        val versionName = packageInfo.versionName ?: "0.0.0"
+        val versionText = getString(R.string.version_format_with_variant, versionName, buildVariant)
         findViewById<TextView>(R.id.versionnumber).text = versionText
+        setLatestCardTitle(versionName)
 
         // Configure system UI for proper insets handling
         configureSystemUI()
@@ -213,6 +233,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         initializeShakeDetection()
         initializeTextToSpeech()
         loadEasterEggs()
+        loadLatestUpdateMarquee()
         
         // Load logo tap state
         isFirstLogoTap = sharedPreferences?.getBoolean(KEY_FIRST_LOGO_TAP, true) ?: true
@@ -220,6 +241,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         // Set up UI
         setupUI()
         updateServiceStatus()
+        renderUpdateBannerFromCache()
         
         // Check for updates automatically (if enabled)
         Log.d(TAG, "About to check for updates automatically")
@@ -248,6 +270,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         
         // Unregister master switch listener (safely handle null case)
         sharedPreferences?.unregisterOnSharedPreferenceChangeListener(masterSwitchListener)
+        sharedPreferences?.unregisterOnSharedPreferenceChangeListener(badgeSelectionListener)
+        updatePrefs?.unregisterOnSharedPreferenceChangeListener(updatePrefsListener)
         
         // Clean up TTS
         textToSpeech?.stop()
@@ -274,17 +298,36 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         // Check for updates automatically when returning to app (if enabled)
         Log.d(TAG, "About to check for updates on resume")
         checkForUpdatesIfEnabled()
+        renderUpdateBannerFromCache()
         
         // Update statistics display
         updateStatisticsDisplay()
+        updateBadgeLogo()
 
     }
     
     private fun setupUI() {
         setupClickListeners()
-        setupAnimatedLogo()
         // TRANSLATION BANNER - REMOVE WHEN NO LONGER NEEDED
 
+    }
+
+    private fun updateBadgeLogo() {
+        if (!::binding.isInitialized) return
+
+        // Only Play builds surface badges; others keep the default logo.
+        if (BuildConfig.DISTRIBUTION_CHANNEL != "play") {
+            binding.logoSpeakThat.setImageResource(R.drawable.logo_speakthat)
+            return
+        }
+
+        val badgeCount = BadgeAssets.getPlayBadgeCount(this)
+        val selection = sharedPreferences?.getString(
+            BadgeAssets.PREF_BADGE_SELECTION,
+            BadgeAssets.KEY_DEFAULT
+        )
+        val drawableRes = BadgeAssets.drawableForSelection(selection, badgeCount)
+        binding.logoSpeakThat.setImageResource(drawableRes)
     }
     
     private fun setupClickListeners() {
@@ -300,6 +343,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
             startActivity(Intent(this, SettingsActivity::class.java))
         }
         
+        // Latest updates long-press to show full text
+        binding.cardLatestUpdates.setOnLongClickListener {
+            InAppLogger.logUserAction("Latest updates card long-pressed")
+            showLatestUpdateDialog()
+            true
+        }
+        binding.textLatestUpdateMarquee.setOnLongClickListener {
+            InAppLogger.logUserAction("Latest updates marquee long-pressed")
+            showLatestUpdateDialog()
+            true
+        }
+        
         // Master switch functionality
         binding.switchMasterControl.setOnCheckedChangeListener { _, isChecked ->
             InAppLogger.logUserAction("Master switch toggled", "Enabled: $isChecked")
@@ -313,66 +368,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         }
         
 
-    }
-    
-    private fun setupAnimatedLogo() {
-        try {
-            // Initialize the animated logo drawable
-            animatedLogo = ContextCompat.getDrawable(this, R.drawable.logo_speakthat_animated) as? AnimatedVectorDrawable
-            if (animatedLogo != null) {
-                Log.d(TAG, "Animated logo initialized successfully")
-                InAppLogger.log("MainActivity", "Animated logo setup successful")
-            } else {
-                Log.w(TAG, "Failed to initialize animated logo")
-                InAppLogger.logError("MainActivity", "Failed to initialize animated logo")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error setting up animated logo", e)
-            InAppLogger.logError("MainActivity", "Error setting up animated logo: ${e.message}")
-        }
-    }
-    
-    private fun triggerLogoAnimation() {
-        try {
-            // Randomly select one of several animated logo variants for variety
-            val animatedLogoVariants = arrayOf(
-                R.drawable.logo_speakthat_animated,
-                R.drawable.logo_speakthat_animated_variant1,
-                R.drawable.logo_speakthat_animated_variant2,
-                R.drawable.logo_speakthat_animated_variant3
-            )
-            
-            val randomVariant = animatedLogoVariants.random()
-            val animatedLogo = ContextCompat.getDrawable(this, randomVariant) as? AnimatedVectorDrawable
-            
-            if (animatedLogo != null) {
-                // Set the animated logo as the ImageView's drawable
-                binding.logoSpeakThat.setImageDrawable(animatedLogo)
-                
-                // Start the animation
-                animatedLogo.start()
-                
-                // Log the animation start
-                Log.d(TAG, "Logo animation started with bright colors (variant: $randomVariant)")
-                InAppLogger.log("MainActivity", "Logo animation triggered with variant: $randomVariant")
-                
-                // Reset to static logo after animation completes (approximately 2 seconds)
-                Handler(Looper.getMainLooper()).postDelayed({
-                    try {
-                        binding.logoSpeakThat.setImageResource(R.drawable.logo_speakthat)
-                        Log.d(TAG, "Logo animation completed, reset to static")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error resetting logo to static", e)
-                    }
-                }, 2000) // 2 seconds delay
-            } else {
-                Log.w(TAG, "Animated logo is null, cannot trigger animation")
-                InAppLogger.logError("MainActivity", "Animated logo is null")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error triggering logo animation", e)
-            InAppLogger.logError("MainActivity", "Error triggering logo animation: ${e.message}")
-        }
     }
     
     private fun updateServiceStatus() {
@@ -482,9 +477,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
     }
     
     private fun applySavedLanguage() {
-        // Get saved language from VoiceSettings preferences
+        // Use device locale as the default so we do not trigger a dialog on cold start
+        val deviceLocale = Locale.getDefault()
+        val defaultLanguagePref = deviceLocale.toLanguageTag().replace('-', '_')
+
+        // Get saved language from VoiceSettings preferences (fall back to device locale)
         val voiceSettingsPrefs = getSharedPreferences("VoiceSettings", MODE_PRIVATE)
-        val savedLanguage = voiceSettingsPrefs.getString("language", "en_US") ?: "en_US"
+        val savedLanguage = voiceSettingsPrefs.getString("language", defaultLanguagePref) ?: defaultLanguagePref
         
         try {
             val targetLocale = parseLocalePreference(savedLanguage)
@@ -518,11 +517,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
                 // Also update the default locale for this session
                 Locale.setDefault(targetLocale)
                 
-                // Show language change dialog instead of immediate recreate
-                showLanguageChangeDialog(targetLocale)
-                
+                // Startup path: apply silently to avoid surfacing a false language-change dialog
                 com.micoyc.speakthat.InAppLogger.log("MainActivity", 
-                    "Applied saved language: ${targetLocale} (from: $savedLanguage)")
+                    "Applied saved language silently at startup: ${targetLocale} (from: $savedLanguage)")
             }
         } catch (e: Exception) {
             com.micoyc.speakthat.InAppLogger.log("MainActivity", 
@@ -612,6 +609,70 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         } catch (e: Exception) {
             Log.e(TAG, "Error loading easter eggs", e)
         }
+    }
+    
+    private fun loadLatestUpdateMarquee() {
+        val fallbackText = getString(R.string.latest_update_fallback)
+        
+        val latestLine = try {
+            assets.open(LATEST_UPDATE_ASSET).bufferedReader().useLines { lines ->
+                lines.firstOrNull { line ->
+                    val trimmed = line.trim()
+                    trimmed.isNotEmpty() && !trimmed.startsWith("#")
+                }?.trim()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading latest update marquee from assets", e)
+            InAppLogger.logError("MainActivity", "Failed to load latest update marquee: ${e.message}")
+            null
+        }
+        
+        val displayText = latestLine ?: fallbackText
+        binding.textLatestUpdateMarquee.text = displayText
+        // Required for marquee to auto-scroll
+        binding.textLatestUpdateMarquee.isSelected = true
+    }
+    
+    private fun setLatestCardTitle(versionName: String) {
+        // Keep title dynamic to reflect current version without hardcoded text
+        val appName = getString(R.string.app_name)
+        binding.textLatestTitle.text = "$appName v$versionName"
+    }
+
+    private fun showLatestUpdateDialog() {
+        val latestText = binding.textLatestUpdateMarquee.text?.toString()
+            ?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.latest_update_fallback)
+
+        val paddingPx = (24 * resources.displayMetrics.density).roundToInt()
+        val messageView = TextView(this).apply {
+            text = latestText
+            setTextColor(binding.textLatestUpdateMarquee.currentTextColor)
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, binding.textLatestUpdateMarquee.textSize)
+            setLineSpacing(0f, 1.1f)
+            setPadding(paddingPx, paddingPx, paddingPx, paddingPx)
+        }
+
+        val scrollView = ScrollView(this).apply {
+            isFillViewport = true
+            overScrollMode = ScrollView.OVER_SCROLL_IF_CONTENT_SCROLLS
+            addView(
+                messageView,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.latest_update_dialog_title))
+            .setView(scrollView)
+            .setPositiveButton(getString(R.string.ok)) { dialog, _ ->
+                InAppLogger.logUserAction("Latest update dialog dismissed")
+                dialog.dismiss()
+            }
+            .show()
     }
     
     override fun onInit(status: Int) {
@@ -755,8 +816,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
     
     private fun handleLogoClick() {
         lastLogoTapCount = trackLogoTap()
-        // Trigger the animated logo flashing effect
-        triggerLogoAnimation()
         
         // Log TTS status for debugging
         val ttsStatus = checkTtsStatus()
@@ -1627,6 +1686,51 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
                     .show()
             }
             .show()
+    }
+
+    private fun renderUpdateBannerFromCache() {
+        if (!BuildConfig.ENABLE_AUTO_UPDATER || BuildConfig.DISTRIBUTION_CHANNEL != "github") {
+            hideUpdateBanner()
+            return
+        }
+
+        if (!::binding.isInitialized) return
+
+        val prefs = sharedPreferences ?: run {
+            hideUpdateBanner()
+            return
+        }
+
+        val autoUpdateEnabled = prefs.getBoolean("auto_update_enabled", true)
+        if (!autoUpdateEnabled) {
+            hideUpdateBanner()
+            return
+        }
+
+        val cached = UpdateFeature.getCachedUpdateInfo(this) ?: run {
+            hideUpdateBanner()
+            return
+        }
+
+        val updateManager = UpdateManager.getInstance(this)
+        if (!updateManager.isNewerThanInstalled(cached.versionName)) {
+            hideUpdateBanner()
+            return
+        }
+
+        binding.cardUpdateBanner.visibility = View.VISIBLE
+        binding.textUpdateBannerTitle.text = getString(R.string.update_banner_title, cached.versionName)
+        val sizeText = formatFileSize(cached.fileSize)
+        binding.textUpdateBannerSubtitle.text = getString(R.string.update_banner_body, sizeText)
+        binding.buttonUpdateBanner.setOnClickListener {
+            UpdateFeature.startUpdateActivity(this, forceCheck = true)
+        }
+    }
+
+    private fun hideUpdateBanner() {
+        if (::binding.isInitialized) {
+            binding.cardUpdateBanner.visibility = View.GONE
+        }
     }
     
     /**

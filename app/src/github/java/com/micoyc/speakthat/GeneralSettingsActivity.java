@@ -8,6 +8,8 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Build;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
@@ -30,6 +32,7 @@ import java.util.Locale;
 public class GeneralSettingsActivity extends AppCompatActivity {
     private ActivityGeneralSettingsBinding binding;
     private SharedPreferences sharedPreferences;
+    private boolean isUpdatingBatteryOptimizationSwitch = false;
     
     // Activity result launchers for file operations
     private ActivityResultLauncher<String> requestPermissionLauncher;
@@ -57,6 +60,7 @@ public class GeneralSettingsActivity extends AppCompatActivity {
         
         setupThemeSettings();
         setupPerformanceSettings();
+        setupToastNotifications();
         setupAccessibilityPermission();
         setupAutoUpdateSettings();
         setupDataManagement();
@@ -211,11 +215,17 @@ public class GeneralSettingsActivity extends AppCompatActivity {
 
         // Battery Optimization Toggle
         MaterialSwitch batteryOptimizationSwitch = binding.switchBatteryOptimization;
-        boolean batteryOptimizationEnabled = sharedPreferences.getBoolean("battery_optimization_enabled", false);
-        batteryOptimizationSwitch.setChecked(batteryOptimizationEnabled);
+        syncBatteryOptimizationState();
 
         batteryOptimizationSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            sharedPreferences.edit().putBoolean("battery_optimization_enabled", isChecked).apply();
+            if (isUpdatingBatteryOptimizationSwitch) {
+                return;
+            }
+            if (isChecked) {
+                requestBatteryOptimizationExemption();
+            } else {
+                sharedPreferences.edit().putBoolean("battery_optimization_enabled", false).apply();
+            }
         });
 
 
@@ -248,6 +258,35 @@ public class GeneralSettingsActivity extends AppCompatActivity {
         });
     }
 
+    private void setupToastNotifications() {
+        // Main App Toggle Toast
+        MaterialSwitch toastMainAppSwitch = binding.switchToastMainApp;
+        boolean toastMainAppEnabled = sharedPreferences.getBoolean(com.micoyc.speakthat.MasterSwitchController.KEY_TOAST_MAIN_APP, true);
+        toastMainAppSwitch.setChecked(toastMainAppEnabled);
+
+        toastMainAppSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            sharedPreferences.edit().putBoolean(com.micoyc.speakthat.MasterSwitchController.KEY_TOAST_MAIN_APP, isChecked).apply();
+        });
+
+        // Quick Settings Tile Toast
+        MaterialSwitch toastQuickSettingsSwitch = binding.switchToastQuickSettings;
+        boolean toastQuickSettingsEnabled = sharedPreferences.getBoolean(com.micoyc.speakthat.MasterSwitchController.KEY_TOAST_QUICK_SETTINGS, true);
+        toastQuickSettingsSwitch.setChecked(toastQuickSettingsEnabled);
+
+        toastQuickSettingsSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            sharedPreferences.edit().putBoolean(com.micoyc.speakthat.MasterSwitchController.KEY_TOAST_QUICK_SETTINGS, isChecked).apply();
+        });
+
+        // Automation Intents Toast
+        MaterialSwitch toastAutomationSwitch = binding.switchToastAutomation;
+        boolean toastAutomationEnabled = sharedPreferences.getBoolean(com.micoyc.speakthat.MasterSwitchController.KEY_TOAST_AUTOMATION, true);
+        toastAutomationSwitch.setChecked(toastAutomationEnabled);
+
+        toastAutomationSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            sharedPreferences.edit().putBoolean(com.micoyc.speakthat.MasterSwitchController.KEY_TOAST_AUTOMATION, isChecked).apply();
+        });
+    }
+
     private void setupAutoUpdateSettings() {
         // Auto-Update Toggle - Default to ON (true)
         MaterialSwitch autoUpdateSwitch = binding.switchAutoUpdate;
@@ -256,10 +295,15 @@ public class GeneralSettingsActivity extends AppCompatActivity {
 
         autoUpdateSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             sharedPreferences.edit().putBoolean("auto_update_enabled", isChecked).apply();
+            com.micoyc.speakthat.UpdateFeature.onAutoUpdatePreferenceChanged(this);
         });
 
         // Update Check Frequency - Default to Weekly
         String updateFrequency = sharedPreferences.getString("update_check_frequency", "weekly");
+        if ("never".equals(updateFrequency)) {
+            updateFrequency = "weekly";
+            sharedPreferences.edit().putString("update_check_frequency", "weekly").apply();
+        }
         switch (updateFrequency) {
             case "daily":
                 binding.radioUpdateDaily.setChecked(true);
@@ -269,9 +313,6 @@ public class GeneralSettingsActivity extends AppCompatActivity {
                 break;
             case "monthly":
                 binding.radioUpdateMonthly.setChecked(true);
-                break;
-            case "never":
-                binding.radioUpdateNever.setChecked(true);
                 break;
             default:
                 // Default to weekly if no value is set
@@ -288,12 +329,11 @@ public class GeneralSettingsActivity extends AppCompatActivity {
                 frequency = "weekly";
             } else if (checkedId == R.id.radioUpdateMonthly) {
                 frequency = "monthly";
-            } else if (checkedId == R.id.radioUpdateNever) {
-                frequency = "never";
             } else {
                 frequency = "weekly"; // Default fallback
             }
             sharedPreferences.edit().putString("update_check_frequency", frequency).apply();
+            com.micoyc.speakthat.UpdateFeature.onAutoUpdatePreferenceChanged(this);
         });
     }
 
@@ -386,6 +426,12 @@ public class GeneralSettingsActivity extends AppCompatActivity {
                 .setNegativeButton("Cancel", null)
                 .show();
         });
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        syncBatteryOptimizationState();
     }
 
     private boolean checkStoragePermission() {
@@ -529,6 +575,57 @@ public class GeneralSettingsActivity extends AppCompatActivity {
         }
     }
     
+    private void syncBatteryOptimizationState() {
+        boolean exempt = isBatteryOptimizationExempt();
+        updateBatteryOptimizationSwitch(exempt);
+        sharedPreferences.edit().putBoolean("battery_optimization_enabled", exempt).apply();
+    }
+
+    private void updateBatteryOptimizationSwitch(boolean isChecked) {
+        isUpdatingBatteryOptimizationSwitch = true;
+        binding.switchBatteryOptimization.setChecked(isChecked);
+        isUpdatingBatteryOptimizationSwitch = false;
+    }
+
+    private boolean isBatteryOptimizationExempt() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return true;
+        }
+        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+        return powerManager != null && powerManager.isIgnoringBatteryOptimizations(getPackageName());
+    }
+
+    private void requestBatteryOptimizationExemption() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            sharedPreferences.edit().putBoolean("battery_optimization_enabled", true).apply();
+            updateBatteryOptimizationSwitch(true);
+            return;
+        }
+
+        if (isBatteryOptimizationExempt()) {
+            sharedPreferences.edit().putBoolean("battery_optimization_enabled", true).apply();
+            updateBatteryOptimizationSwitch(true);
+            return;
+        }
+
+        Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+        intent.setData(Uri.parse("package:" + getPackageName()));
+        try {
+            startActivity(intent);
+        } catch (Exception e) {
+            openBatteryOptimizationSettingsFallback();
+        }
+    }
+
+    private void openBatteryOptimizationSettingsFallback() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+            startActivity(intent);
+        } catch (Exception ignored) {
+            // If this also fails, leave the switch as-is; the user can retry.
+        }
+    }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);

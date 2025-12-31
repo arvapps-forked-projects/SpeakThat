@@ -11,8 +11,8 @@ android {
         applicationId = "com.micoyc.speakthat"
         minSdk = 24
         targetSdk = 36
-        versionCode = 26
-        versionName = "1.6.2"
+        versionCode = 40
+        versionName = "1.6.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -40,6 +40,13 @@ android {
             // Build config fields for store variant
             buildConfigField("boolean", "ENABLE_AUTO_UPDATER", "false")
             buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"store\"")
+        }
+        
+        create("play") {
+            dimension = "distribution"
+            // Matches the store flavor behavior; no updater for Play distribution
+            buildConfigField("boolean", "ENABLE_AUTO_UPDATER", "false")
+            buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"play\"")
         }
     }
 
@@ -71,6 +78,8 @@ android {
                 buildConfig = true  // Enable BuildConfig generation
             }
 
+    // Use default res structure (badge vectors are placed directly in drawable).
+
     // Configure APK output file naming
     applicationVariants.all {
         outputs.all {
@@ -80,6 +89,7 @@ android {
                 
                 outputFileName = when (flavor) {
                     "store" -> "SpeakThat-NoUpdater-v${versionName}.apk"
+                    "play" -> "SpeakThat-NoUpdater-v${versionName}.apk"
                     "github" -> "SpeakThat-v${versionName}.apk"
                     else -> "SpeakThat-${flavor}-v${versionName}.apk"
                 }
@@ -97,6 +107,7 @@ dependencies {
     implementation(libs.androidx.viewpager2)
     implementation(libs.androidx.recyclerview)
     implementation(libs.gson)
+    implementation("androidx.lifecycle:lifecycle-process:2.8.4")
     
     // Coil for image loading - only used in GitHub variant for online icons
     implementation("io.coil-kt:coil:2.4.0")
@@ -107,6 +118,9 @@ dependencies {
     
     // For background work (optional, for future enhancements)
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+
+    // Play-only: Google Play Billing for donation flow (quantity support requires 6.2+)
+    add("playImplementation", "com.android.billingclient:billing-ktx:8.1.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

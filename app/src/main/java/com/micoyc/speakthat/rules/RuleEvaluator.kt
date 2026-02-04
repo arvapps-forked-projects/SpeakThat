@@ -1,8 +1,13 @@
 package com.micoyc.speakthat.rules
 
 import android.content.Context
+import com.micoyc.speakthat.AccessibilityUtils
+import com.micoyc.speakthat.ForegroundAppTracker
 import com.micoyc.speakthat.InAppLogger
-import com.micoyc.speakthat.utils.WifiCapabilityChecker
+import android.net.NetworkCapabilities
+import android.net.wifi.WifiInfo
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 
 /**
  * Rule evaluation engine
@@ -37,6 +42,8 @@ data class RuleEvaluationResult(
     val shouldExecute: Boolean,
     val triggerResults: List<EvaluationResult>,
     val exceptionResults: List<EvaluationResult>,
+    val rawTriggerResults: List<EvaluationResult>,
+    val rawExceptionResults: List<EvaluationResult>,
     val message: String
 ) {
     fun getLogMessage(): String {
@@ -77,7 +84,7 @@ class RuleEvaluator(private val context: Context) {
     /**
      * Evaluates a single rule and returns whether it should execute
      */
-    fun evaluateRule(rule: Rule): RuleEvaluationResult {
+    fun evaluateRule(rule: Rule, notificationContext: NotificationContext): RuleEvaluationResult {
         InAppLogger.logDebug(TAG, "Evaluating rule: ${rule.getLogMessage()}")
         
         // Skip disabled rules
@@ -91,13 +98,16 @@ class RuleEvaluator(private val context: Context) {
                 shouldExecute = false,
                 triggerResults = emptyList(),
                 exceptionResults = emptyList(),
+                rawTriggerResults = emptyList(),
+                rawExceptionResults = emptyList(),
                 message = "Rule is disabled"
             )
         }
         
         // Evaluate triggers
-        val triggerResults = evaluateTriggers(rule.triggers, rule.triggerLogic)
-        val triggersMet = triggerResults.all { it.success }
+        val triggerEvaluation = evaluateTriggers(rule.triggers, rule.triggerLogic, notificationContext)
+        val triggerResults = triggerEvaluation.gatedResults
+        val triggersMet = triggerEvaluation.finalResult
         
         InAppLogger.logDebug(TAG, "Trigger evaluation for '${rule.name}': ${if (triggersMet) "MET" else "NOT_MET"}")
         
@@ -111,13 +121,16 @@ class RuleEvaluator(private val context: Context) {
                 shouldExecute = false,
                 triggerResults = triggerResults,
                 exceptionResults = emptyList(),
+                rawTriggerResults = triggerEvaluation.rawResults,
+                rawExceptionResults = emptyList(),
                 message = "Triggers not met"
             )
         }
         
         // Evaluate exceptions
-        val exceptionResults = evaluateExceptions(rule.exceptions, rule.exceptionLogic)
-        val exceptionsMet = exceptionResults.any { it.success } // Any exception met = rule blocked
+        val exceptionEvaluation = evaluateExceptions(rule.exceptions, rule.exceptionLogic, notificationContext)
+        val exceptionResults = exceptionEvaluation.gatedResults
+        val exceptionsMet = exceptionEvaluation.finalResult // Any exception met = rule blocked
         
         InAppLogger.logDebug(TAG, "Exception evaluation for '${rule.name}': ${if (exceptionsMet) "MET (BLOCKED)" else "NOT_MET (ALLOWED)"}")
         
@@ -138,6 +151,8 @@ class RuleEvaluator(private val context: Context) {
             shouldExecute = shouldExecute,
             triggerResults = triggerResults,
             exceptionResults = exceptionResults,
+            rawTriggerResults = triggerEvaluation.rawResults,
+            rawExceptionResults = exceptionEvaluation.rawResults,
             message = message
         )
         
@@ -148,32 +163,36 @@ class RuleEvaluator(private val context: Context) {
     /**
      * Evaluates a list of triggers using the specified logic gate
      */
-    private fun evaluateTriggers(triggers: List<Trigger>, logicGate: LogicGate): List<EvaluationResult> {
+    private fun evaluateTriggers(
+        triggers: List<Trigger>,
+        logicGate: LogicGate,
+        notificationContext: NotificationContext
+    ): LogicGateEvaluation {
         if (triggers.isEmpty()) {
             InAppLogger.logDebug(TAG, "No triggers to evaluate")
-            return emptyList()
+            return LogicGateEvaluation(emptyList(), emptyList(), false)
         }
         
         InAppLogger.logDebug(TAG, "Evaluating ${triggers.size} triggers with logic gate: ${logicGate.displayName}")
         
-        val results = triggers.map { trigger ->
-            evaluateTrigger(trigger)
+        val rawResults = triggers.map { trigger ->
+            evaluateTrigger(trigger, notificationContext)
         }
         
         // Apply logic gate
         val finalResult = when (logicGate) {
             LogicGate.AND -> {
-                val allSuccess = results.all { it.success }
+                val allSuccess = rawResults.all { it.success }
                 InAppLogger.logDebug(TAG, "AND logic: all triggers must succeed = $allSuccess")
                 allSuccess
             }
             LogicGate.OR -> {
-                val anySuccess = results.any { it.success }
+                val anySuccess = rawResults.any { it.success }
                 InAppLogger.logDebug(TAG, "OR logic: any trigger can succeed = $anySuccess")
                 anySuccess
             }
             LogicGate.XOR -> {
-                val successCount = results.count { it.success }
+                val successCount = rawResults.count { it.success }
                 val exactlyOne = successCount == 1
                 InAppLogger.logDebug(TAG, "XOR logic: exactly one trigger must succeed = $exactlyOne (success count: $successCount)")
                 exactlyOne
@@ -181,7 +200,7 @@ class RuleEvaluator(private val context: Context) {
         }
         
         // Update results to reflect logic gate
-        return results.map { result ->
+        val gatedResults = rawResults.map { result ->
             if (finalResult) {
                 result
             } else {
@@ -192,12 +211,13 @@ class RuleEvaluator(private val context: Context) {
                 )
             }
         }
+        return LogicGateEvaluation(rawResults, gatedResults, finalResult)
     }
     
     /**
      * Evaluates a single trigger
      */
-    private fun evaluateTrigger(trigger: Trigger): EvaluationResult {
+    private fun evaluateTrigger(trigger: Trigger, notificationContext: NotificationContext): EvaluationResult {
         if (!trigger.enabled) {
             return EvaluationResult(
                 success = false,
@@ -209,7 +229,15 @@ class RuleEvaluator(private val context: Context) {
         
         // Get the base evaluation result
         val baseResult = when (trigger.type) {
+            TriggerType.BATTERY_PERCENTAGE -> evaluateBatteryPercentageTrigger(trigger)
+            TriggerType.CHARGING_STATUS -> evaluateChargingStatusTrigger(trigger)
+            TriggerType.DEVICE_UNLOCKED -> evaluateDeviceUnlockedTrigger(trigger)
+            TriggerType.NOTIFICATION_CONTAINS -> evaluateNotificationContainsTrigger(trigger, notificationContext)
+            TriggerType.NOTIFICATION_FROM -> evaluateNotificationFromTrigger(trigger, notificationContext)
+            TriggerType.FOREGROUND_APP -> evaluateForegroundAppTrigger(trigger)
+            TriggerType.SCREEN_ORIENTATION -> evaluateScreenOrientationTrigger(trigger)
             TriggerType.BLUETOOTH_DEVICE -> evaluateBluetoothTrigger(trigger)
+            TriggerType.WIRED_HEADPHONES -> evaluateWiredHeadphonesTrigger(trigger)
             TriggerType.SCREEN_STATE -> evaluateScreenStateTrigger(trigger)
             TriggerType.TIME_SCHEDULE -> evaluateTimeScheduleTrigger(trigger)
             TriggerType.WIFI_NETWORK -> evaluateWifiNetworkTrigger(trigger)
@@ -231,32 +259,36 @@ class RuleEvaluator(private val context: Context) {
     /**
      * Evaluates a list of exceptions using the specified logic gate
      */
-    private fun evaluateExceptions(exceptions: List<Exception>, logicGate: LogicGate): List<EvaluationResult> {
+    private fun evaluateExceptions(
+        exceptions: List<Exception>,
+        logicGate: LogicGate,
+        notificationContext: NotificationContext
+    ): LogicGateEvaluation {
         if (exceptions.isEmpty()) {
             InAppLogger.logDebug(TAG, "No exceptions to evaluate")
-            return emptyList()
+            return LogicGateEvaluation(emptyList(), emptyList(), false)
         }
         
         InAppLogger.logDebug(TAG, "Evaluating ${exceptions.size} exceptions with logic gate: ${logicGate.displayName}")
         
-        val results = exceptions.map { exception ->
-            evaluateException(exception)
+        val rawResults = exceptions.map { exception ->
+            evaluateException(exception, notificationContext)
         }
         
         // Apply logic gate
         val finalResult = when (logicGate) {
             LogicGate.AND -> {
-                val allSuccess = results.all { it.success }
+                val allSuccess = rawResults.all { it.success }
                 InAppLogger.logDebug(TAG, "AND logic: all exceptions must be met = $allSuccess")
                 allSuccess
             }
             LogicGate.OR -> {
-                val anySuccess = results.any { it.success }
+                val anySuccess = rawResults.any { it.success }
                 InAppLogger.logDebug(TAG, "OR logic: any exception can be met = $anySuccess")
                 anySuccess
             }
             LogicGate.XOR -> {
-                val successCount = results.count { it.success }
+                val successCount = rawResults.count { it.success }
                 val exactlyOne = successCount == 1
                 InAppLogger.logDebug(TAG, "XOR logic: exactly one exception must be met = $exactlyOne (success count: $successCount)")
                 exactlyOne
@@ -264,7 +296,7 @@ class RuleEvaluator(private val context: Context) {
         }
         
         // Update results to reflect logic gate
-        return results.map { result ->
+        val gatedResults = rawResults.map { result ->
             if (finalResult) {
                 result
             } else {
@@ -275,12 +307,13 @@ class RuleEvaluator(private val context: Context) {
                 )
             }
         }
+        return LogicGateEvaluation(rawResults, gatedResults, finalResult)
     }
     
     /**
      * Evaluates a single exception
      */
-    private fun evaluateException(exception: Exception): EvaluationResult {
+    private fun evaluateException(exception: Exception, notificationContext: NotificationContext): EvaluationResult {
         if (!exception.enabled) {
             return EvaluationResult(
                 success = false,
@@ -292,7 +325,15 @@ class RuleEvaluator(private val context: Context) {
         
         // Get the base evaluation result
         val baseResult = when (exception.type) {
+            ExceptionType.BATTERY_PERCENTAGE -> evaluateBatteryPercentageException(exception)
+            ExceptionType.CHARGING_STATUS -> evaluateChargingStatusException(exception)
+            ExceptionType.DEVICE_UNLOCKED -> evaluateDeviceUnlockedException(exception)
+            ExceptionType.NOTIFICATION_CONTAINS -> evaluateNotificationContainsException(exception, notificationContext)
+            ExceptionType.NOTIFICATION_FROM -> evaluateNotificationFromException(exception, notificationContext)
+            ExceptionType.FOREGROUND_APP -> evaluateForegroundAppException(exception)
+            ExceptionType.SCREEN_ORIENTATION -> evaluateScreenOrientationException(exception)
             ExceptionType.BLUETOOTH_DEVICE -> evaluateBluetoothException(exception)
+            ExceptionType.WIRED_HEADPHONES -> evaluateWiredHeadphonesException(exception)
             ExceptionType.SCREEN_STATE -> evaluateScreenStateException(exception)
             ExceptionType.TIME_SCHEDULE -> evaluateTimeScheduleException(exception)
             ExceptionType.WIFI_NETWORK -> evaluateWifiNetworkException(exception)
@@ -321,7 +362,8 @@ class RuleEvaluator(private val context: Context) {
             InAppLogger.logDebug(TAG, "Trigger data: ${trigger.data}")
             
             // Step 1: Check Bluetooth availability and permissions
-            val bluetoothAdapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+            val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+            val bluetoothAdapter = bluetoothManager?.adapter
             
             if (bluetoothAdapter == null) {
                 InAppLogger.logDebug(TAG, "Bluetooth not available on this device")
@@ -382,7 +424,342 @@ class RuleEvaluator(private val context: Context) {
             )
         }
     }
+
+    private fun evaluateWiredHeadphonesTrigger(trigger: Trigger): EvaluationResult {
+        return try {
+            InAppLogger.logDebug(TAG, "Evaluating wired headphones trigger: ${trigger.getLogMessage()}")
+            InAppLogger.logDebug(TAG, "Trigger data: ${trigger.data}")
+
+            val requiredState = (trigger.data["connection_state"] as? String)?.lowercase() ?: "disconnected"
+            val shouldBeConnected = requiredState == "connected"
+
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+
+            // Only outputs: this matches what users mean by "headphones connected"
+            val outputDevices = audioManager.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+
+            val matchingOutputs = outputDevices.filter { device ->
+                when (device.type) {
+                    AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+                    AudioDeviceInfo.TYPE_WIRED_HEADSET,
+                    AudioDeviceInfo.TYPE_USB_HEADSET
+                        -> true
+                    else -> false
+                }
+            }
+
+            val hasWiredHeadphones = matchingOutputs.isNotEmpty()
+
+            // Optional: more helpful logs
+            if (matchingOutputs.isNotEmpty()) {
+                matchingOutputs.forEach { d ->
+                    InAppLogger.logDebug(
+                        TAG,
+                        "Wired output device: type=${d.type}, name=${d.productName}, isSink=${d.isSink}, isSource=${d.isSource}"
+                    )
+                }
+            }
+
+            InAppLogger.logDebug(TAG, "Wired headphones check - Required state: $requiredState, Connected: $hasWiredHeadphones")
+            InAppLogger.logDebug(TAG, "Output devices: ${outputDevices.map { "type=${it.type}, name=${it.productName}" }}")
+            InAppLogger.logDebug(TAG, "Matching wired output devices: ${matchingOutputs.size}")
+
+            val success = (hasWiredHeadphones == shouldBeConnected)
+
+            EvaluationResult(
+                success = success,
+                message = if (success) {
+                    "Wired headphones are $requiredState"
+                } else {
+                    "Wired headphones are not $requiredState"
+                },
+                data = mapOf(
+                    "connection_state" to requiredState,
+                    "is_connected" to hasWiredHeadphones,
+                    "matching_device_types" to matchingOutputs.map { it.type }
+                )
+            )
+        } catch (e: Throwable) {
+            InAppLogger.logError(TAG, "Error evaluating wired headphones trigger: ${e.message}")
+            EvaluationResult(
+                success = false,
+                message = "Wired headphones evaluation error: ${e.message}"
+            )
+        }
+    }
+
     
+    private fun evaluateBatteryPercentageTrigger(trigger: Trigger): EvaluationResult {
+        try {
+            val batteryInfo = getBatteryInfo()
+            if (batteryInfo == null) {
+                return EvaluationResult(
+                    success = false,
+                    message = "Battery info unavailable"
+                )
+            }
+
+            val mode = trigger.data["mode"] as? String ?: "above"
+            val thresholdRaw = trigger.data["percentage"]
+            val threshold = when (thresholdRaw) {
+                is Int -> thresholdRaw
+                is Long -> thresholdRaw.toInt()
+                is Double -> thresholdRaw.toInt()
+                is Float -> thresholdRaw.toInt()
+                is Number -> thresholdRaw.toInt()
+                is String -> thresholdRaw.toIntOrNull()
+                else -> null
+            } ?: 0
+
+            val isAbove = batteryInfo.percentage >= threshold
+            val success = if (mode == "below") !isAbove else isAbove
+
+            return EvaluationResult(
+                success = success,
+                message = if (success) {
+                    "Battery ${if (mode == "below") "below" else "above"} $threshold%"
+                } else {
+                    "Battery not ${if (mode == "below") "below" else "above"} $threshold%"
+                },
+                data = mapOf(
+                    "battery_percentage" to batteryInfo.percentage,
+                    "threshold" to threshold,
+                    "mode" to mode
+                )
+            )
+        } catch (e: Throwable) {
+            InAppLogger.logError(TAG, "Error evaluating battery percentage trigger: ${e.message}")
+            return EvaluationResult(
+                success = false,
+                message = "Battery percentage evaluation error: ${e.message}"
+            )
+        }
+    }
+
+    private fun evaluateChargingStatusTrigger(trigger: Trigger): EvaluationResult {
+        try {
+            val batteryInfo = getBatteryInfo()
+            if (batteryInfo == null) {
+                return EvaluationResult(
+                    success = false,
+                    message = "Battery info unavailable"
+                )
+            }
+
+            val status = trigger.data["status"] as? String ?: "charging"
+            val shouldBeCharging = status != "discharging"
+            val success = batteryInfo.isCharging == shouldBeCharging
+
+            return EvaluationResult(
+                success = success,
+                message = if (success) {
+                    "Battery is ${if (shouldBeCharging) "charging" else "discharging"}"
+                } else {
+                    "Battery is not ${if (shouldBeCharging) "charging" else "discharging"}"
+                },
+                data = mapOf(
+                    "battery_percentage" to batteryInfo.percentage,
+                    "is_charging" to batteryInfo.isCharging,
+                    "status" to status
+                )
+            )
+        } catch (e: Throwable) {
+            InAppLogger.logError(TAG, "Error evaluating charging status trigger: ${e.message}")
+            return EvaluationResult(
+                success = false,
+                message = "Charging status evaluation error: ${e.message}"
+            )
+        }
+    }
+
+    private fun evaluateDeviceUnlockedTrigger(trigger: Trigger): EvaluationResult {
+        try {
+            val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+            val isLocked = keyguardManager.isDeviceLocked
+            val mode = trigger.data["mode"] as? String ?: "unlocked"
+            val shouldBeUnlocked = mode != "locked"
+            val success = (!isLocked) == shouldBeUnlocked
+
+            return EvaluationResult(
+                success = success,
+                message = if (success) {
+                    "Device is ${if (shouldBeUnlocked) "unlocked" else "locked"}"
+                } else {
+                    "Device is not ${if (shouldBeUnlocked) "unlocked" else "locked"}"
+                },
+                data = mapOf(
+                    "is_locked" to isLocked,
+                    "mode" to mode
+                )
+            )
+        } catch (e: Throwable) {
+            InAppLogger.logError(TAG, "Error evaluating device unlocked trigger: ${e.message}")
+            return EvaluationResult(
+                success = false,
+                message = "Device unlocked evaluation error: ${e.message}"
+            )
+        }
+    }
+
+    private fun evaluateScreenOrientationTrigger(trigger: Trigger): EvaluationResult {
+        try {
+            val mode = trigger.data["mode"] as? String ?: "portrait"
+            val orientation = context.resources.configuration.orientation
+            val isPortrait = orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
+            val shouldBePortrait = mode != "landscape"
+            val success = isPortrait == shouldBePortrait
+
+            return EvaluationResult(
+                success = success,
+                message = if (success) {
+                    "Screen is ${if (shouldBePortrait) "portrait" else "landscape"}"
+                } else {
+                    "Screen is not ${if (shouldBePortrait) "portrait" else "landscape"}"
+                },
+                data = mapOf(
+                    "orientation" to orientation,
+                    "mode" to mode
+                )
+            )
+        } catch (e: Throwable) {
+            InAppLogger.logError(TAG, "Error evaluating screen orientation trigger: ${e.message}")
+            return EvaluationResult(
+                success = false,
+                message = "Screen orientation evaluation error: ${e.message}"
+            )
+        }
+    }
+
+    private fun evaluateNotificationContainsTrigger(
+        trigger: Trigger,
+        notificationContext: NotificationContext
+    ): EvaluationResult {
+        try {
+            val phrase = trigger.data["phrase"] as? String ?: ""
+            val caseSensitive = trigger.data["case_sensitive"] as? Boolean ?: false
+
+            if (phrase.isBlank()) {
+                return EvaluationResult(
+                    success = false,
+                    message = "Notification contains: phrase is empty"
+                )
+            }
+
+            val haystack = buildNotificationSearchText(notificationContext)
+            if (haystack.isBlank()) {
+                return EvaluationResult(
+                    success = false,
+                    message = "Notification contains: no text available"
+                )
+            }
+
+            val success = if (caseSensitive) {
+                haystack.contains(phrase)
+            } else {
+                haystack.lowercase().contains(phrase.lowercase())
+            }
+
+            return EvaluationResult(
+                success = success,
+                message = if (success) "Phrase found in notification" else "Phrase not found in notification",
+                data = mapOf(
+                    "phrase" to phrase,
+                    "case_sensitive" to caseSensitive
+                )
+            )
+        } catch (e: Throwable) {
+            InAppLogger.logError(TAG, "Error evaluating notification contains trigger: ${e.message}")
+            return EvaluationResult(
+                success = false,
+                message = "Notification contains evaluation error: ${e.message}"
+            )
+        }
+    }
+
+    private fun evaluateNotificationFromTrigger(
+        trigger: Trigger,
+        notificationContext: NotificationContext
+    ): EvaluationResult {
+        InAppLogger.logDebug(TAG, "Evaluating Notification From trigger: ${trigger.getLogMessage()}")
+        val packagesData = trigger.data["app_packages"]
+        val packages = when (packagesData) {
+            is Set<*> -> packagesData.filterIsInstance<String>()
+            is List<*> -> packagesData.filterIsInstance<String>()
+            else -> emptyList()
+        }
+
+        if (packages.isEmpty()) {
+            InAppLogger.logDebug(TAG, "Notification From trigger has no selected packages")
+            return EvaluationResult(false, "No notification apps selected")
+        }
+
+        val incomingPackage = notificationContext.packageName
+        val isMatch = packages.any { it.equals(incomingPackage, ignoreCase = true) }
+        val message = if (isMatch) {
+            "Notification from matched app: $incomingPackage"
+        } else {
+            "Notification from app does not match: $incomingPackage"
+        }
+
+        return EvaluationResult(
+            isMatch,
+            message,
+            mapOf<String, Any>(
+                "notification_package" to incomingPackage,
+                "selected_packages" to packages
+            )
+        )
+    }
+
+    private fun evaluateForegroundAppTrigger(trigger: Trigger): EvaluationResult {
+        InAppLogger.logDebug(TAG, "Evaluating Foreground App trigger: ${trigger.getLogMessage()}")
+        val packagesData = trigger.data["app_packages"]
+        val packages = when (packagesData) {
+            is Set<*> -> packagesData.filterIsInstance<String>()
+            is List<*> -> packagesData.filterIsInstance<String>()
+            else -> emptyList()
+        }
+
+        if (packages.isEmpty()) {
+            InAppLogger.logDebug(TAG, "Foreground app trigger has no selected packages")
+            return EvaluationResult(false, "No foreground apps selected")
+        }
+
+        if (!AccessibilityUtils.isAccessibilityServiceEnabled(context)) {
+            InAppLogger.logDebug(TAG, "Accessibility service not enabled for foreground app detection")
+            return EvaluationResult(false, "Accessibility service not enabled for foreground app detection")
+        }
+
+        val currentPackage = ForegroundAppTracker.getCurrentPackage()
+        val effectivePackage = ForegroundAppTracker.getEffectivePackage(15000L)
+        if (effectivePackage.isNullOrBlank()) {
+            InAppLogger.logDebug(TAG, "Foreground app package is unknown (no accessibility events yet)")
+            return EvaluationResult(false, "Foreground app unknown")
+        }
+
+        val lastUpdatedAt = ForegroundAppTracker.getLastUpdatedAt()
+        val ageMs = System.currentTimeMillis() - lastUpdatedAt
+        InAppLogger.logDebug(
+            TAG,
+            "Foreground app detected: current=$currentPackage effective=$effectivePackage (age=${ageMs}ms)"
+        )
+
+        val isMatch = packages.any { it.equals(effectivePackage, ignoreCase = true) }
+        val message = if (isMatch) {
+            "Foreground app matches: $effectivePackage"
+        } else {
+            "Foreground app does not match: $effectivePackage"
+        }
+        return EvaluationResult(
+            isMatch,
+            message,
+            mapOf<String, Any>(
+                "current_package" to (currentPackage ?: ""),
+                "effective_package" to effectivePackage,
+                "foreground_age_ms" to ageMs
+            )
+        )
+    }
     /**
      * Check if the app has the necessary Bluetooth permissions
      */
@@ -455,7 +832,7 @@ class RuleEvaluator(private val context: Context) {
             )
         }
         
-        InAppLogger.logDebug(TAG, "ALL METHODS FAILED: No Bluetooth device is actively connected (paired/bonded devices are NOT considered connected)")
+        InAppLogger.logDebug(TAG, "ALL METHODS FAILED: No Bluetooth device is actively connected")
         return EvaluationResult(
             success = false,
             message = "No Bluetooth device is actively connected",
@@ -507,7 +884,7 @@ class RuleEvaluator(private val context: Context) {
             )
         }
         
-        InAppLogger.logDebug(TAG, "ALL METHODS FAILED: Required Bluetooth device is not connected (paired/bonded devices are NOT considered connected)")
+        InAppLogger.logDebug(TAG, "ALL METHODS FAILED: Required Bluetooth device is not connected")
         return EvaluationResult(
             success = false,
             message = "Required Bluetooth device is not connected",
@@ -574,18 +951,20 @@ class RuleEvaluator(private val context: Context) {
         
         try {
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-            
-            // Check various audio routing indicators
-            val isBluetoothA2dpOn = audioManager.isBluetoothA2dpOn
-            val isBluetoothScoOn = audioManager.isBluetoothScoOn
             val audioMode = audioManager.mode
             val isCallOrCommMode = isCallOrCommunicationMode(audioMode)
-            val isScoRoutable = isBluetoothScoOn && isCallOrCommMode
-            val hasAudioRoute = isBluetoothA2dpOn || isScoRoutable
+            val hasBluetoothOutput = audioManager.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+                .any { device ->
+                    device.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                        device.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                        device.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                        device.type == android.media.AudioDeviceInfo.TYPE_HEARING_AID
+                }
+            val hasAudioRoute = hasBluetoothOutput
             
             InAppLogger.logDebug(
                 TAG,
-                "Audio routing check - A2DP: $isBluetoothA2dpOn, SCO: $isBluetoothScoOn, Mode: $audioMode, Call/Comm mode: $isCallOrCommMode"
+                "Audio routing check - Bluetooth output: $hasBluetoothOutput, Mode: $audioMode, Call/Comm mode: $isCallOrCommMode"
             )
             
             // Conservative fallback: require A2DP, or SCO while in a call/comm mode.
@@ -610,7 +989,8 @@ class RuleEvaluator(private val context: Context) {
         InAppLogger.logDebug(TAG, "--- Checking if specific bonded devices are connected via audio routing ---")
         
         try {
-            val bluetoothAdapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+            val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+            val bluetoothAdapter = bluetoothManager?.adapter
             val bondedDevices = bluetoothAdapter?.bondedDevices ?: emptySet()
             
             // Check if any required device is in the bonded list
@@ -627,16 +1007,20 @@ class RuleEvaluator(private val context: Context) {
             
             // Check if audio is being routed to Bluetooth
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-            val isBluetoothA2dpOn = audioManager.isBluetoothA2dpOn
-            val isBluetoothScoOn = audioManager.isBluetoothScoOn
             val audioMode = audioManager.mode
             val isCallOrCommMode = isCallOrCommunicationMode(audioMode)
-            val isScoRoutable = isBluetoothScoOn && isCallOrCommMode
-            val hasAudioRoute = isBluetoothA2dpOn || isScoRoutable
+            val hasBluetoothOutput = audioManager.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+                .any { device ->
+                    device.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                        device.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                        device.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                        device.type == android.media.AudioDeviceInfo.TYPE_HEARING_AID
+                }
+            val hasAudioRoute = hasBluetoothOutput
             
             InAppLogger.logDebug(
                 TAG,
-                "Audio routing check - A2DP: $isBluetoothA2dpOn, SCO: $isBluetoothScoOn, Mode: $audioMode, Call/Comm mode: $isCallOrCommMode"
+                "Audio routing check - Bluetooth output: $hasBluetoothOutput, Mode: $audioMode, Call/Comm mode: $isCallOrCommMode"
             )
             
             // Conservative fallback: require A2DP, or SCO while in a call/comm mode.
@@ -820,7 +1204,11 @@ class RuleEvaluator(private val context: Context) {
         try {
             val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
             val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
-            
+
+            val activeNetwork = connectivityManager.activeNetwork
+            val networkCapabilities = activeNetwork?.let { connectivityManager.getNetworkCapabilities(it) }
+            val isWifiConnected = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+
             if (!wifiManager.isWifiEnabled) {
                 InAppLogger.logDebug(TAG, "WiFi is disabled")
                 return EvaluationResult(
@@ -828,41 +1216,21 @@ class RuleEvaluator(private val context: Context) {
                     message = "WiFi is disabled"
                 )
             }
-            
-            // Try multiple methods to get current WiFi SSID
-            var currentSSID = ""
-            
-            // Method 1: Direct WiFi manager
-            val connectionInfo = wifiManager.connectionInfo
-            val rawSSID = connectionInfo.ssid
-            currentSSID = rawSSID?.removeSurrounding("\"") ?: ""
-            
-            InAppLogger.logDebug(TAG, "WiFi detection Method 1 - Raw SSID: '$rawSSID', Cleaned SSID: '$currentSSID'")
-            
-            // Method 2: ConnectivityManager fallback if Method 1 fails
-            if (currentSSID.isEmpty() || currentSSID == "<unknown ssid>" || currentSSID == "0x") {
-                try {
-                    val activeNetwork = connectivityManager.activeNetwork
-                    if (activeNetwork != null) {
-                        val networkCapabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
-                        if (networkCapabilities?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true) {
-                            // Try to get SSID from network info
-                            val networkInfo = connectivityManager.getNetworkInfo(activeNetwork)
-                            InAppLogger.logDebug(TAG, "WiFi detection Method 2 - NetworkInfo: $networkInfo")
-                            
-                            // For Android 15, we might need to use a different approach
-                            // Let's try to at least detect if we're connected to WiFi
-                            if (networkInfo?.isConnected == true) {
-                                InAppLogger.logDebug(TAG, "WiFi detection Method 2 - Connected to WiFi but SSID unknown")
-                                // We know we're connected to WiFi, but can't get the SSID
-                                // This is a limitation of Android 15
-                            }
-                        }
-                    }
-                } catch (e: Throwable) {
-                    InAppLogger.logDebug(TAG, "WiFi detection Method 2 failed: ${e.message}")
-                }
+
+            val wifiInfoFromTransport = networkCapabilities?.transportInfo as? WifiInfo
+            val rawSSID = wifiInfoFromTransport?.ssid ?: run {
+                @Suppress("DEPRECATION")
+                wifiManager.connectionInfo?.ssid
             }
+            val currentSSID = rawSSID?.removeSurrounding("\"") ?: ""
+            val isSsidKnown = currentSSID.isNotBlank() &&
+                !currentSSID.equals("<unknown ssid>", ignoreCase = true) &&
+                currentSSID != "0x"
+
+            InAppLogger.logDebug(
+                TAG,
+                "WiFi detection - Connected=$isWifiConnected, Raw SSID='$rawSSID', Cleaned SSID='$currentSSID', SSID known=$isSsidKnown"
+            )
             
             // Get required networks from trigger data
             // Handle both Set<String> and List<String> since JSON serialization converts Sets to Lists
@@ -875,20 +1243,19 @@ class RuleEvaluator(private val context: Context) {
             
             if (requiredNetworks.isEmpty()) {
                 // Check if connected to any network
-                val isConnected = currentSSID.isNotEmpty() && currentSSID != "<unknown ssid>" && currentSSID != "0x"
-                
-                InAppLogger.logDebug(TAG, "No specific network required, connected: $isConnected (SSID: $currentSSID)")
+                InAppLogger.logDebug(TAG, "No specific network required, WiFi connected: $isWifiConnected (SSID: $currentSSID)")
                 
                 return EvaluationResult(
-                    success = isConnected,
-                    message = if (isConnected) "Connected to WiFi network" else "Not connected to WiFi",
-                    data = mapOf("current_ssid" to currentSSID)
+                    success = isWifiConnected,
+                    message = if (isWifiConnected) "Connected to WiFi network" else "Not connected to WiFi",
+                    data = mapOf(
+                        "current_ssid" to currentSSID,
+                        "ssid_known" to isSsidKnown,
+                        "wifi_connected" to isWifiConnected
+                    )
                 )
             } else {
-                // Check if we can resolve SSIDs
-                val canResolveSSID = WifiCapabilityChecker.canResolveWifiSSID(context)
-                
-                if (canResolveSSID) {
+                if (isSsidKnown) {
                     // We can resolve SSIDs, so check for specific networks
                     val isConnectedToRequired = currentSSID in requiredNetworks
                     
@@ -897,24 +1264,23 @@ class RuleEvaluator(private val context: Context) {
                     return EvaluationResult(
                         success = isConnectedToRequired,
                         message = if (isConnectedToRequired) "Connected to required WiFi network" else "Not connected to required WiFi network",
-                        data = mapOf("current_ssid" to currentSSID)
+                        data = mapOf(
+                            "current_ssid" to currentSSID,
+                            "ssid_known" to true,
+                            "wifi_connected" to isWifiConnected
+                        )
                     )
                 } else {
-                    // Cannot resolve SSIDs due to Android security restrictions
-                    // Fallback to WiFi connection state instead of specific networks
-                    val isConnectedToWiFi = currentSSID.isNotEmpty() && currentSSID != "<unknown ssid>" && currentSSID != "0x"
-                    
-                    InAppLogger.logDebug(TAG, "SSID resolution not possible due to Android security restrictions. Using WiFi connection state instead.")
-                    InAppLogger.logDebug(TAG, "WiFi connected: $isConnectedToWiFi, Required networks: $requiredNetworks (ignored due to SSID resolution limitation)")
-                    
+                    InAppLogger.logDebug(TAG, "SSID unavailable; cannot verify required networks. WiFi connected: $isWifiConnected")
+
                     return EvaluationResult(
-                        success = isConnectedToWiFi,
-                        message = if (isConnectedToWiFi) "Connected to WiFi (specific network unknown due to Android security)" else "Not connected to WiFi",
+                        success = false,
+                        message = if (isWifiConnected) "Connected to WiFi but SSID unavailable" else "Not connected to WiFi",
                         data = mapOf(
                             "required_networks" to requiredNetworks,
                             "current_ssid" to currentSSID,
-                            "ssid_resolution_limited" to true,
-                            "wifi_connected" to isConnectedToWiFi
+                            "ssid_known" to false,
+                            "wifi_connected" to isWifiConnected
                         )
                     )
                 }
@@ -941,6 +1307,112 @@ class RuleEvaluator(private val context: Context) {
         ))
     }
     
+    private fun evaluateWiredHeadphonesException(exception: Exception): EvaluationResult {
+        // Use the same logic as wired headphones trigger
+        return evaluateWiredHeadphonesTrigger(Trigger(
+            type = TriggerType.WIRED_HEADPHONES,
+            data = exception.data
+        ))
+    }
+    
+    private fun evaluateBatteryPercentageException(exception: Exception): EvaluationResult {
+        return evaluateBatteryPercentageTrigger(Trigger(
+            type = TriggerType.BATTERY_PERCENTAGE,
+            data = exception.data
+        ))
+    }
+
+    private fun evaluateChargingStatusException(exception: Exception): EvaluationResult {
+        return evaluateChargingStatusTrigger(Trigger(
+            type = TriggerType.CHARGING_STATUS,
+            data = exception.data
+        ))
+    }
+
+    private fun evaluateDeviceUnlockedException(exception: Exception): EvaluationResult {
+        return evaluateDeviceUnlockedTrigger(Trigger(
+            type = TriggerType.DEVICE_UNLOCKED,
+            data = exception.data
+        ))
+    }
+
+    private fun evaluateScreenOrientationException(exception: Exception): EvaluationResult {
+        return evaluateScreenOrientationTrigger(Trigger(
+            type = TriggerType.SCREEN_ORIENTATION,
+            data = exception.data
+        ))
+    }
+
+    private fun evaluateNotificationContainsException(
+        exception: Exception,
+        notificationContext: NotificationContext
+    ): EvaluationResult {
+        return evaluateNotificationContainsTrigger(Trigger(
+            type = TriggerType.NOTIFICATION_CONTAINS,
+            data = exception.data
+        ), notificationContext)
+    }
+
+    private fun evaluateNotificationFromException(
+        exception: Exception,
+        notificationContext: NotificationContext
+    ): EvaluationResult {
+        return evaluateNotificationFromTrigger(Trigger(
+            type = TriggerType.NOTIFICATION_FROM,
+            data = exception.data
+        ), notificationContext)
+    }
+
+    private fun evaluateForegroundAppException(exception: Exception): EvaluationResult {
+        InAppLogger.logDebug(TAG, "Evaluating Foreground App exception: ${exception.getLogMessage()}")
+        val packagesData = exception.data["app_packages"]
+        val packages = when (packagesData) {
+            is Set<*> -> packagesData.filterIsInstance<String>()
+            is List<*> -> packagesData.filterIsInstance<String>()
+            else -> emptyList()
+        }
+
+        if (packages.isEmpty()) {
+            InAppLogger.logDebug(TAG, "Foreground app exception has no selected packages")
+            return EvaluationResult(false, "No foreground apps selected")
+        }
+
+        if (!AccessibilityUtils.isAccessibilityServiceEnabled(context)) {
+            InAppLogger.logDebug(TAG, "Accessibility service not enabled for foreground app detection")
+            return EvaluationResult(false, "Accessibility service not enabled for foreground app detection")
+        }
+
+        val currentPackage = ForegroundAppTracker.getCurrentPackage()
+        val effectivePackage = ForegroundAppTracker.getEffectivePackage(15000L)
+        if (effectivePackage.isNullOrBlank()) {
+            InAppLogger.logDebug(TAG, "Foreground app package is unknown (no accessibility events yet)")
+            return EvaluationResult(false, "Foreground app unknown")
+        }
+
+        val lastUpdatedAt = ForegroundAppTracker.getLastUpdatedAt()
+        val ageMs = System.currentTimeMillis() - lastUpdatedAt
+        InAppLogger.logDebug(
+            TAG,
+            "Foreground app detected: current=$currentPackage effective=$effectivePackage (age=${ageMs}ms)"
+        )
+
+        val isMatch = packages.any { it.equals(effectivePackage, ignoreCase = true) }
+        val message = if (isMatch) {
+            "Foreground app matches: $effectivePackage"
+        } else {
+            "Foreground app does not match: $effectivePackage"
+        }
+        return EvaluationResult(
+            isMatch,
+            message,
+            mapOf<String, Any>(
+                "current_package" to (currentPackage ?: ""),
+                "effective_package" to effectivePackage,
+                "foreground_age_ms" to ageMs
+            )
+        )
+    }
+
     private fun evaluateScreenStateException(exception: Exception): EvaluationResult {
         // Use the same logic as screen state trigger
         return evaluateScreenStateTrigger(Trigger(
@@ -964,4 +1436,45 @@ class RuleEvaluator(private val context: Context) {
             data = exception.data
         ))
     }
+
+    private data class BatteryInfo(
+        val percentage: Int,
+        val isCharging: Boolean
+    )
+
+    private fun getBatteryInfo(): BatteryInfo? {
+        val intent = context.registerReceiver(
+            null,
+            android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)
+        ) ?: return null
+
+        val level = intent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
+        val scale = intent.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1)
+        if (level < 0 || scale <= 0) {
+            return null
+        }
+
+        val percentage = ((level / scale.toFloat()) * 100).toInt().coerceIn(0, 100)
+        val status = intent.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1)
+        val isCharging = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
+            status == android.os.BatteryManager.BATTERY_STATUS_FULL
+
+        return BatteryInfo(percentage, isCharging)
+    }
+
+    private fun buildNotificationSearchText(notificationContext: NotificationContext): String {
+        val parts = listOf(
+            notificationContext.title,
+            notificationContext.text,
+            notificationContext.bigText,
+            notificationContext.ticker
+        )
+        return parts.joinToString(separator = " ") { it?.toString().orEmpty() }.trim()
+    }
+
+    private data class LogicGateEvaluation(
+        val rawResults: List<EvaluationResult>,
+        val gatedResults: List<EvaluationResult>,
+        val finalResult: Boolean
+    )
 } 

@@ -56,11 +56,13 @@ public class FilterSettingsActivity extends AppCompatActivity {
     private static final String KEY_APP_LIST_MODE = "app_list_mode";
     private static final String KEY_APP_LIST = "app_list";
     private static final String KEY_APP_PRIVATE_FLAGS = "app_private_flags";
+    private static final String KEY_WORD_LIST_MODE = "word_list_mode";
     private static final String KEY_WORD_BLACKLIST = "word_blacklist";
     private static final String KEY_WORD_BLACKLIST_PRIVATE = "word_blacklist_private";
     private static final String KEY_WORD_REPLACEMENTS = "word_replacements";
     private static final String KEY_URL_HANDLING_MODE = "url_handling_mode";
     private static final String KEY_URL_REPLACEMENT_TEXT = "url_replacement_text";
+    private static final String KEY_TIDY_SPEECH_REMOVE_EMOJIS = "tidy_speech_remove_emojis";
     private static final String DEFAULT_URL_HANDLING_MODE = "domain_only";
     private static final String DEFAULT_URL_REPLACEMENT_TEXT = "";
     private static final String KEY_DEFAULTS_INITIALIZED = "defaults_initialized";
@@ -98,6 +100,9 @@ public class FilterSettingsActivity extends AppCompatActivity {
     // URL handling variables
     private String urlHandlingMode = DEFAULT_URL_HANDLING_MODE;
     private String urlReplacementText = DEFAULT_URL_REPLACEMENT_TEXT;
+    
+    // Word list mode
+    private String wordListMode = "blacklist"; // Default to blacklist for backward compatibility
     
     private List<AppFilterItem> mediaExceptedAppsList = new ArrayList<>();
     private List<WordFilterItem> mediaImportantKeywordsList = new ArrayList<>();
@@ -166,9 +171,15 @@ public class FilterSettingsActivity extends AppCompatActivity {
             getSupportActionBar().setTitle(R.string.title_filter_settings);
         }
 
+        // Show loading initially
+        setLoading(true);
+
         initializeUI();
         loadSettings();
         initializeFilePicker();
+
+        // Hide loading after initialization
+        setLoading(false);
 
         localBroadcastManager = LocalBroadcastManager.getInstance(this);
         repairBlacklistReceiver = new android.content.BroadcastReceiver() {
@@ -193,6 +204,44 @@ public class FilterSettingsActivity extends AppCompatActivity {
         }
     }
 
+    private void setLoading(boolean loading) {
+        View loadingContainer = binding.loadingContainer;
+        View scrollView = binding.filterSettingsScrollView;
+        TextView loadingText = binding.loadingText;
+        
+        if (loadingContainer != null) {
+            loadingContainer.setVisibility(loading ? View.VISIBLE : View.GONE);
+        }
+        if (scrollView != null) {
+            scrollView.setVisibility(loading ? View.INVISIBLE : View.VISIBLE);
+        }
+        
+        // Set random loading text
+        if (loading && loadingText != null) {
+            int[] loadingLines = {
+                R.string.loading_line_1, R.string.loading_line_2, R.string.loading_line_3,
+                R.string.loading_line_4, R.string.loading_line_5, R.string.loading_line_6,
+                R.string.loading_line_7, R.string.loading_line_8, R.string.loading_line_9,
+                R.string.loading_line_10, R.string.loading_line_11, R.string.loading_line_12,
+                R.string.loading_line_13, R.string.loading_line_14, R.string.loading_line_15,
+                R.string.loading_line_16, R.string.loading_line_17, R.string.loading_line_18,
+                R.string.loading_line_19, R.string.loading_line_20, R.string.loading_line_21,
+                R.string.loading_line_22, R.string.loading_line_23, R.string.loading_line_24,
+                R.string.loading_line_25, R.string.loading_line_26, R.string.loading_line_27,
+                R.string.loading_line_28, R.string.loading_line_29, R.string.loading_line_30,
+                R.string.loading_line_31, R.string.loading_line_32, R.string.loading_line_33,
+                R.string.loading_line_34, R.string.loading_line_35, R.string.loading_line_36,
+                R.string.loading_line_37, R.string.loading_line_38, R.string.loading_line_39,
+                R.string.loading_line_40, R.string.loading_line_41, R.string.loading_line_42,
+                R.string.loading_line_43, R.string.loading_line_44, R.string.loading_line_45,
+                R.string.loading_line_46, R.string.loading_line_47, R.string.loading_line_48,
+                R.string.loading_line_49, R.string.loading_line_50
+            };
+            int randomLine = loadingLines[new java.util.Random().nextInt(loadingLines.length)];
+            loadingText.setText(randomLine);
+        }
+    }
+
     private void initializeUI() {
         // Set up app list mode radio buttons
         binding.appListModeGroup.setOnCheckedChangeListener((group, checkedId) -> {
@@ -210,6 +259,26 @@ public class FilterSettingsActivity extends AppCompatActivity {
             
             // R.string.button_save setting
             saveAppListMode(mode);
+        });
+        
+        // Set up word list mode radio buttons
+        binding.wordListModeGroup.setOnCheckedChangeListener((group, checkedId) -> {
+            String mode = "blacklist"; // Default to blacklist
+            if (checkedId == R.id.radioWordNone) {
+                mode = "none";
+            } else if (checkedId == R.id.radioWordWhitelist) {
+                mode = "whitelist";
+            } else if (checkedId == R.id.radioWordBlacklist) {
+                mode = "blacklist";
+            }
+            
+            // Show/hide word list section
+            binding.wordListSection.setVisibility(
+                "none".equals(mode) ? View.GONE : View.VISIBLE
+            );
+            
+            // Save setting
+            saveWordListMode(mode);
         });
 
         // Set up RecyclerViews
@@ -304,6 +373,11 @@ public class FilterSettingsActivity extends AppCompatActivity {
         binding.appListHeader.setOnClickListener(v -> toggleAppList());
         binding.blacklistHeader.setOnClickListener(v -> toggleBlacklist());
         binding.replacementHeader.setOnClickListener(v -> toggleReplacement());
+
+        // Set up tidy speech switch
+        binding.switchRemoveEmojis.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            saveTidySpeechRemoveEmojis(isChecked);
+        });
         
         // Set up media excepted app input field
         setupMediaExceptedAppSelector();
@@ -429,6 +503,23 @@ public class FilterSettingsActivity extends AppCompatActivity {
                 binding.appListSection.setVisibility(View.GONE);
                 break;
         }
+        
+        // Load word list mode (default to blacklist for backward compatibility)
+        wordListMode = sharedPreferences.getString(KEY_WORD_LIST_MODE, "blacklist");
+        switch (wordListMode) {
+            case "whitelist":
+                binding.radioWordWhitelist.setChecked(true);
+                binding.wordListSection.setVisibility(View.VISIBLE);
+                break;
+            case "blacklist":
+                binding.radioWordBlacklist.setChecked(true);
+                binding.wordListSection.setVisibility(View.VISIBLE);
+                break;
+            default:
+                binding.radioWordNone.setChecked(true);
+                binding.wordListSection.setVisibility(View.GONE);
+                break;
+        }
 
         // Load app list
         Set<String> apps = sharedPreferences.getStringSet(KEY_APP_LIST, new HashSet<>());
@@ -496,6 +587,10 @@ public class FilterSettingsActivity extends AppCompatActivity {
         
         // Set custom replacement text
         binding.editUrlReplacementText.setText(urlReplacementText);
+
+        // Load tidy speech settings
+        boolean removeEmojis = sharedPreferences.getBoolean(KEY_TIDY_SPEECH_REMOVE_EMOJIS, false); // Default to disabled
+        binding.switchRemoveEmojis.setChecked(removeEmojis);
         
         // Load media notification filtering settings
         boolean isMediaFilteringEnabled = sharedPreferences.getBoolean(KEY_MEDIA_FILTERING_ENABLED, true); // Default to enabled
@@ -1105,6 +1200,13 @@ public class FilterSettingsActivity extends AppCompatActivity {
         editor.apply();
     }
     
+    private void saveWordListMode(String mode) {
+        wordListMode = mode;
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        editor.putString(KEY_WORD_LIST_MODE, mode);
+        editor.apply();
+    }
+    
     private void saveUrlHandlingMode(String mode) {
         urlHandlingMode = mode;
         SharedPreferences.Editor editor = sharedPreferences.edit();
@@ -1116,6 +1218,12 @@ public class FilterSettingsActivity extends AppCompatActivity {
         urlReplacementText = text;
         SharedPreferences.Editor editor = sharedPreferences.edit();
         editor.putString(KEY_URL_REPLACEMENT_TEXT, text);
+        editor.apply();
+    }
+
+    private void saveTidySpeechRemoveEmojis(boolean enabled) {
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        editor.putBoolean(KEY_TIDY_SPEECH_REMOVE_EMOJIS, enabled);
         editor.apply();
     }
 

@@ -3,6 +3,7 @@ package com.micoyc.speakthat.rules
 import android.content.Context
 import com.google.gson.*
 import com.google.gson.reflect.TypeToken
+import com.micoyc.speakthat.AppListManager
 import com.micoyc.speakthat.InAppLogger
 import java.lang.reflect.Type
 import kotlin.math.abs
@@ -61,8 +62,11 @@ class MapStringAnyTypeAdapter : JsonSerializer<Map<String, Any>>, JsonDeserializ
         val jsonObject = json.asJsonObject
         
         for ((key, value) in jsonObject.entrySet()) {
+            if (value.isJsonNull) {
+                continue
+            }
+
             result[key] = when {
-                value.isJsonNull -> ""
                 value.isJsonPrimitive -> {
                     val primitive = value.asJsonPrimitive
                     when {
@@ -101,8 +105,10 @@ class MapStringAnyTypeAdapter : JsonSerializer<Map<String, Any>>, JsonDeserializ
                     val array = value.asJsonArray
                     val list = mutableListOf<Any>()
                     for (element in array) {
+                        if (element.isJsonNull) {
+                            continue
+                        }
                         when {
-                            element.isJsonNull -> list.add("")
                             element.isJsonPrimitive -> {
                                 val primitive = element.asJsonPrimitive
                                 list.add(when {
@@ -237,11 +243,23 @@ enum class LogicGate(val displayName: String, val symbol: String) {
 /**
  * Types of triggers that can activate a rule
  */
-enum class TriggerType(val displayName: String, val description: String) {
-    BLUETOOTH_DEVICE("Bluetooth Device Connected", "When a specific Bluetooth device is connected"),
-    SCREEN_STATE("Screen State (On/Off)", "When the screen is on or off"),
-    TIME_SCHEDULE("Time Schedule", "During specific time periods"),
-    WIFI_NETWORK("WiFi Network Connected", "When connected to a specific WiFi network");
+enum class TriggerType(
+    val displayName: String,
+    val description: String,
+    val isCacheable: Boolean
+) {
+    BLUETOOTH_DEVICE("Bluetooth Device Connected", "When a specific Bluetooth device is connected", true),
+    WIRED_HEADPHONES("Wired Headphones", "When headphones are connected to your device via a cable", false),
+    BATTERY_PERCENTAGE("Battery Percentage", "When battery is above or below a percentage", false),
+    CHARGING_STATUS("Charging Status", "When the device is charging or discharging", true),
+    DEVICE_UNLOCKED("Device Unlocked", "When the device is locked or unlocked", true),
+    NOTIFICATION_CONTAINS("Notification Contains", "When notification contains a word or phrase", false),
+    NOTIFICATION_FROM("Notification From", "When notification is from a selected app", false),
+    FOREGROUND_APP("Foreground App", "When a specific app is in the foreground", false),
+    SCREEN_ORIENTATION("Screen Orientation", "When the screen is portrait or landscape", true),
+    SCREEN_STATE("Screen State (On/Off)", "When the screen is on or off", true),
+    TIME_SCHEDULE("Time Schedule", "During specific time periods", true),
+    WIFI_NETWORK("WiFi Network Connected", "When connected to a specific WiFi network", true);
     
     companion object {
         fun fromDisplayName(name: String): TriggerType {
@@ -254,11 +272,16 @@ enum class TriggerType(val displayName: String, val description: String) {
  * Types of actions that can be performed when a rule is triggered
  */
 enum class ActionType(val displayName: String, val description: String) {
-    DISABLE_SPEAKTHAT("Skip this notification", "Don't read this notification aloud");
+    APPLY_CUSTOM_SPEECH_FORMAT("Apply custom speech format", "Read this notification using a custom speech format"),
+    FORCE_PRIVATE("Force private", "Read the app name, but not the notification content"),
+    OVERRIDE_PRIVATE("Override private", "Read the entire notification, even if it would normally be private"),
+    SKIP_NOTIFICATION("Skip this notification", "Don't read this notification aloud"),
+    SET_MASTER_SWITCH("Set master switch", "Enable or disable SpeakThat globally"),
+    DISABLE_SPEAKTHAT("Legacy: Skip this notification", "Legacy action migrated to Skip this notification");
     
     companion object {
         fun fromDisplayName(name: String): ActionType {
-            return values().find { it.displayName == name } ?: DISABLE_SPEAKTHAT
+            return values().find { it.displayName == name } ?: SKIP_NOTIFICATION
         }
     }
 }
@@ -266,11 +289,23 @@ enum class ActionType(val displayName: String, val description: String) {
 /**
  * Types of exceptions that can override a rule
  */
-enum class ExceptionType(val displayName: String, val description: String) {
-    BLUETOOTH_DEVICE("Bluetooth Device Connected", "When a specific Bluetooth device is connected"),
-    SCREEN_STATE("Screen State (On/Off)", "When the screen is on or off"),
-    TIME_SCHEDULE("Time Schedule", "During specific time periods"),
-    WIFI_NETWORK("WiFi Network Connected", "When connected to a specific WiFi network");
+enum class ExceptionType(
+    val displayName: String,
+    val description: String,
+    val isCacheable: Boolean
+) {
+    BLUETOOTH_DEVICE("Bluetooth Device Connected", "When a specific Bluetooth device is connected", true),
+    WIRED_HEADPHONES("Wired Headphones", "When headphones are connected to your device via a cable", false),
+    BATTERY_PERCENTAGE("Battery Percentage", "When battery is above or below a percentage", false),
+    CHARGING_STATUS("Charging Status", "When the device is charging or discharging", true),
+    DEVICE_UNLOCKED("Device Unlocked", "When the device is locked or unlocked", true),
+    NOTIFICATION_CONTAINS("Notification Contains", "When notification contains a word or phrase", false),
+    NOTIFICATION_FROM("Notification From", "When notification is from a selected app", false),
+    FOREGROUND_APP("Foreground App", "When a specific app is in the foreground", false),
+    SCREEN_ORIENTATION("Screen Orientation", "When the screen is portrait or landscape", true),
+    SCREEN_STATE("Screen State (On/Off)", "When the screen is on or off", true),
+    TIME_SCHEDULE("Time Schedule", "During specific time periods", true),
+    WIFI_NETWORK("WiFi Network Connected", "When connected to a specific WiFi network", true);
     
     companion object {
         fun fromDisplayName(name: String): ExceptionType {
@@ -500,11 +535,114 @@ data class Rule(
         if (!trigger.enabled) return ""
         
         return when (trigger.type) {
+            TriggerType.BATTERY_PERCENTAGE -> {
+                val mode = trigger.data["mode"] as? String ?: "above"
+                val percentageRaw = trigger.data["percentage"]
+                val percentage = when (percentageRaw) {
+                    is Int -> percentageRaw
+                    is Long -> percentageRaw.toInt()
+                    is Double -> percentageRaw.toInt()
+                    is Float -> percentageRaw.toInt()
+                    is Number -> percentageRaw.toInt()
+                    is String -> percentageRaw.toIntOrNull()
+                    else -> null
+                } ?: 0
+
+                if (mode == "below") {
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_battery_below, percentage)
+                } else {
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_battery_above, percentage)
+                }
+            }
+            TriggerType.CHARGING_STATUS -> {
+                val status = trigger.data["status"] as? String ?: "charging"
+                if (status == "discharging") {
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_battery_discharging)
+                } else {
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_battery_charging)
+                }
+            }
+            TriggerType.DEVICE_UNLOCKED -> {
+                val mode = trigger.data["mode"] as? String ?: "unlocked"
+                if (mode == "locked") {
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_device_locked)
+                } else {
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_device_unlocked)
+                }
+            }
+            TriggerType.NOTIFICATION_CONTAINS -> {
+                val phrase = trigger.data["phrase"] as? String ?: ""
+                val caseSensitive = trigger.data["case_sensitive"] as? Boolean ?: false
+                val caseSuffix = if (caseSensitive) {
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_case_sensitive_suffix)
+                } else {
+                    ""
+                }
+                if (trigger.inverted) {
+                    context.getString(
+                        com.micoyc.speakthat.R.string.rule_trigger_notification_not_contains,
+                        phrase
+                    ) + caseSuffix
+                } else {
+                    context.getString(
+                        com.micoyc.speakthat.R.string.rule_trigger_notification_contains,
+                        phrase
+                    ) + caseSuffix
+                }
+            }
+            TriggerType.NOTIFICATION_FROM -> {
+                val packagesData = trigger.data["app_packages"]
+                val packages = when (packagesData) {
+                    is Set<*> -> packagesData.filterIsInstance<String>()
+                    is List<*> -> packagesData.filterIsInstance<String>()
+                    else -> emptyList()
+                }
+                val description = if (packages.size == 1) {
+                    val packageName = packages.first()
+                    val appName = AppListManager.findAppByPackage(context, packageName)?.displayName ?: packageName
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_notification_from_single, appName)
+                } else {
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_notification_from_multiple, packages.size)
+                }
+                if (trigger.inverted) {
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_notification_from_not, description)
+                } else {
+                    description
+                }
+            }
+            TriggerType.FOREGROUND_APP -> {
+                val packagesData = trigger.data["app_packages"]
+                val packages = when (packagesData) {
+                    is Set<*> -> packagesData.filterIsInstance<String>()
+                    is List<*> -> packagesData.filterIsInstance<String>()
+                    else -> emptyList()
+                }
+                val description = if (packages.size == 1) {
+                    val packageName = packages.first()
+                    val appName = AppListManager.findAppByPackage(context, packageName)?.displayName ?: packageName
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_foreground_app_single, appName)
+                } else {
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_foreground_app_multiple, packages.size)
+                }
+                if (trigger.inverted) {
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_foreground_app_not, description)
+                } else {
+                    description
+                }
+            }
             TriggerType.BLUETOOTH_DEVICE -> {
                 if (trigger.inverted) {
                     context.getString(com.micoyc.speakthat.R.string.rule_trigger_bluetooth_disconnected)
                 } else {
                     context.getString(com.micoyc.speakthat.R.string.rule_trigger_bluetooth_connected)
+                }
+            }
+            TriggerType.WIRED_HEADPHONES -> {
+                val connectionState = trigger.data["connection_state"] as? String ?: "disconnected"
+                if (connectionState == "connected") {
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_wired_headphones_connected)
+                } else {
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_wired_headphones_disconnected)
                 }
             }
             TriggerType.SCREEN_STATE -> {
@@ -576,6 +714,14 @@ data class Rule(
                     }
                 }
             }
+            TriggerType.SCREEN_ORIENTATION -> {
+                val mode = trigger.data["mode"] as? String ?: "portrait"
+                if (mode == "landscape") {
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_orientation_landscape)
+                } else {
+                    context.getString(com.micoyc.speakthat.R.string.rule_trigger_orientation_portrait)
+                }
+            }
         }
     }
     
@@ -597,8 +743,21 @@ data class Rule(
         if (!action.enabled) return ""
         
         return when (action.type) {
+            ActionType.APPLY_CUSTOM_SPEECH_FORMAT -> {
+                context.getString(com.micoyc.speakthat.R.string.rule_action_custom_speech_format)
+            }
+            ActionType.FORCE_PRIVATE -> {
+                context.getString(com.micoyc.speakthat.R.string.rule_action_force_private)
+            }
+            ActionType.OVERRIDE_PRIVATE -> {
+                context.getString(com.micoyc.speakthat.R.string.rule_action_override_private)
+            }
+            ActionType.SKIP_NOTIFICATION,
             ActionType.DISABLE_SPEAKTHAT -> {
                 context.getString(com.micoyc.speakthat.R.string.rule_action_skip_notification)
+            }
+            ActionType.SET_MASTER_SWITCH -> {
+                context.getString(com.micoyc.speakthat.R.string.rule_action_master_switch)
             }
         }
     }
@@ -621,11 +780,114 @@ data class Rule(
         if (!exception.enabled) return ""
         
         return when (exception.type) {
+            ExceptionType.BATTERY_PERCENTAGE -> {
+                val mode = exception.data["mode"] as? String ?: "above"
+                val percentageRaw = exception.data["percentage"]
+                val percentage = when (percentageRaw) {
+                    is Int -> percentageRaw
+                    is Long -> percentageRaw.toInt()
+                    is Double -> percentageRaw.toInt()
+                    is Float -> percentageRaw.toInt()
+                    is Number -> percentageRaw.toInt()
+                    is String -> percentageRaw.toIntOrNull()
+                    else -> null
+                } ?: 0
+
+                if (mode == "below") {
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_battery_below, percentage)
+                } else {
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_battery_above, percentage)
+                }
+            }
+            ExceptionType.CHARGING_STATUS -> {
+                val status = exception.data["status"] as? String ?: "charging"
+                if (status == "discharging") {
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_battery_discharging)
+                } else {
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_battery_charging)
+                }
+            }
+            ExceptionType.DEVICE_UNLOCKED -> {
+                val mode = exception.data["mode"] as? String ?: "unlocked"
+                if (mode == "locked") {
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_device_locked)
+                } else {
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_device_unlocked)
+                }
+            }
+            ExceptionType.NOTIFICATION_CONTAINS -> {
+                val phrase = exception.data["phrase"] as? String ?: ""
+                val caseSensitive = exception.data["case_sensitive"] as? Boolean ?: false
+                val caseSuffix = if (caseSensitive) {
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_case_sensitive_suffix)
+                } else {
+                    ""
+                }
+                if (exception.inverted) {
+                    context.getString(
+                        com.micoyc.speakthat.R.string.rule_exception_notification_not_contains,
+                        phrase
+                    ) + caseSuffix
+                } else {
+                    context.getString(
+                        com.micoyc.speakthat.R.string.rule_exception_notification_contains,
+                        phrase
+                    ) + caseSuffix
+                }
+            }
+            ExceptionType.NOTIFICATION_FROM -> {
+                val packagesData = exception.data["app_packages"]
+                val packages = when (packagesData) {
+                    is Set<*> -> packagesData.filterIsInstance<String>()
+                    is List<*> -> packagesData.filterIsInstance<String>()
+                    else -> emptyList()
+                }
+                val description = if (packages.size == 1) {
+                    val packageName = packages.first()
+                    val appName = AppListManager.findAppByPackage(context, packageName)?.displayName ?: packageName
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_notification_from_single, appName)
+                } else {
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_notification_from_multiple, packages.size)
+                }
+                if (exception.inverted) {
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_notification_from_not, description)
+                } else {
+                    description
+                }
+            }
+            ExceptionType.FOREGROUND_APP -> {
+                val packagesData = exception.data["app_packages"]
+                val packages = when (packagesData) {
+                    is Set<*> -> packagesData.filterIsInstance<String>()
+                    is List<*> -> packagesData.filterIsInstance<String>()
+                    else -> emptyList()
+                }
+                val description = if (packages.size == 1) {
+                    val packageName = packages.first()
+                    val appName = AppListManager.findAppByPackage(context, packageName)?.displayName ?: packageName
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_foreground_app_single, appName)
+                } else {
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_foreground_app_multiple, packages.size)
+                }
+                if (exception.inverted) {
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_foreground_app_not, description)
+                } else {
+                    description
+                }
+            }
             ExceptionType.BLUETOOTH_DEVICE -> {
                 if (exception.inverted) {
                     context.getString(com.micoyc.speakthat.R.string.rule_exception_bluetooth_disconnected)
                 } else {
                     context.getString(com.micoyc.speakthat.R.string.rule_exception_bluetooth_connected)
+                }
+            }
+            ExceptionType.WIRED_HEADPHONES -> {
+                val connectionState = exception.data["connection_state"] as? String ?: "disconnected"
+                if (connectionState == "connected") {
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_wired_headphones_connected)
+                } else {
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_wired_headphones_disconnected)
                 }
             }
             ExceptionType.SCREEN_STATE -> {
@@ -684,6 +946,14 @@ data class Rule(
                     context.getString(com.micoyc.speakthat.R.string.rule_exception_wifi_disconnected, networkName)
                 } else {
                     context.getString(com.micoyc.speakthat.R.string.rule_exception_wifi_connected, networkName)
+                }
+            }
+            ExceptionType.SCREEN_ORIENTATION -> {
+                val mode = exception.data["mode"] as? String ?: "portrait"
+                if (mode == "landscape") {
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_orientation_landscape)
+                } else {
+                    context.getString(com.micoyc.speakthat.R.string.rule_exception_orientation_portrait)
                 }
             }
         }

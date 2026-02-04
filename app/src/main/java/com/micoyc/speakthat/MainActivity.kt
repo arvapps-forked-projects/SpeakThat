@@ -14,6 +14,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.BatteryManager
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
@@ -46,12 +47,14 @@ import android.widget.TextView
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import android.graphics.drawable.AnimatedVectorDrawable
+import com.micoyc.speakthat.rules.migration.RuleMigrationManager
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEventListener {
     
     private lateinit var binding: ActivityMainBinding
     private var sharedPreferences: SharedPreferences? = null
     private var updatePrefs: SharedPreferences? = null
+    private var migrationPrefs: SharedPreferences? = null
     private var textToSpeech: TextToSpeech? = null
     private var isTtsInitialized = false
     private var isFirstLogoTap = true
@@ -131,6 +134,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         renderUpdateBannerFromCache()
     }
 
+    private val migrationPrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        renderRulesMigrationBannerFromCache()
+    }
+
     /**
      * Listen for badge selection changes (Play flavor only) so the logo updates immediately.
      */
@@ -189,6 +196,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         // Initialize SharedPreferences
         sharedPreferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         updatePrefs = getSharedPreferences("UpdatePrefs", MODE_PRIVATE)
+        migrationPrefs = getSharedPreferences("RuleMigrationPrefs", MODE_PRIVATE)
+
+        // Run one-time rules migration if needed
+        RuleMigrationManager.runIfNeeded(this)
         
         // Initialize voice settings listener
         voiceSettingsPrefs = getSharedPreferences("VoiceSettings", MODE_PRIVATE)
@@ -198,6 +209,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         sharedPreferences?.registerOnSharedPreferenceChangeListener(masterSwitchListener)
         sharedPreferences?.registerOnSharedPreferenceChangeListener(badgeSelectionListener)
         updatePrefs?.registerOnSharedPreferenceChangeListener(updatePrefsListener)
+        migrationPrefs?.registerOnSharedPreferenceChangeListener(migrationPrefsListener)
         
         // Apply saved theme first
         applySavedTheme()
@@ -242,6 +254,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         setupUI()
         updateServiceStatus()
         renderUpdateBannerFromCache()
+        renderRulesMigrationBannerFromCache()
         
         // Check for updates automatically (if enabled)
         Log.d(TAG, "About to check for updates automatically")
@@ -272,6 +285,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         sharedPreferences?.unregisterOnSharedPreferenceChangeListener(masterSwitchListener)
         sharedPreferences?.unregisterOnSharedPreferenceChangeListener(badgeSelectionListener)
         updatePrefs?.unregisterOnSharedPreferenceChangeListener(updatePrefsListener)
+        migrationPrefs?.unregisterOnSharedPreferenceChangeListener(migrationPrefsListener)
         
         // Clean up TTS
         textToSpeech?.stop()
@@ -299,6 +313,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         Log.d(TAG, "About to check for updates on resume")
         checkForUpdatesIfEnabled()
         renderUpdateBannerFromCache()
+        renderRulesMigrationBannerFromCache()
         
         // Update statistics display
         updateStatisticsDisplay()
@@ -467,7 +482,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
     // showNotificationHistory moved to DevelopmentSettingsActivity
     
     private fun applySavedTheme() {
-        val isDarkMode = sharedPreferences?.getBoolean(KEY_DARK_MODE, false) ?: false // Default to light mode
+        val isDarkMode = sharedPreferences?.getBoolean(KEY_DARK_MODE, true) ?: true // Default to dark mode
         
         if (isDarkMode) {
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
@@ -1477,7 +1492,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
             // Test audio manager
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
             val isMusicActive = audioManager.isMusicActive
-            val isSpeakerphoneOn = audioManager.isSpeakerphoneOn
+            val isSpeakerphoneOn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val device = audioManager.communicationDevice
+                device?.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.isSpeakerphoneOn
+            }
             
             DiagnosticResult("OK", getString(R.string.diagnostics_output_stream_ok))
         } catch (e: Exception) {
@@ -1730,6 +1751,49 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
     private fun hideUpdateBanner() {
         if (::binding.isInitialized) {
             binding.cardUpdateBanner.visibility = View.GONE
+        }
+    }
+
+    private fun renderRulesMigrationBannerFromCache() {
+        if (!::binding.isInitialized) return
+
+        val summary = RuleMigrationManager.getSummary(this) ?: run {
+            hideRulesMigrationBanner()
+            return
+        }
+
+        if (summary.dismissed || (!summary.legacyFound && summary.attentionRules == 0)) {
+            hideRulesMigrationBanner()
+            return
+        }
+
+        binding.cardRulesMigrationBanner.visibility = View.VISIBLE
+        binding.textRulesMigrationTitle.text = getString(R.string.rules_migration_banner_title)
+
+        val subtitle = if (summary.attentionRules > 0) {
+            getString(
+                R.string.rules_migration_banner_body_attention,
+                summary.migratedRules,
+                summary.attentionRules
+            )
+        } else {
+            getString(R.string.rules_migration_banner_body_ok, summary.migratedRules)
+        }
+        binding.textRulesMigrationSubtitle.text = subtitle
+
+        val clickListener = View.OnClickListener {
+            RuleMigrationManager.dismissBanner(this)
+            InAppLogger.logUserAction("Rules migration banner clicked")
+            startActivity(Intent(this, RulesActivity::class.java))
+        }
+
+        binding.cardRulesMigrationBanner.setOnClickListener(clickListener)
+        binding.buttonRulesMigrationAction.setOnClickListener(clickListener)
+    }
+
+    private fun hideRulesMigrationBanner() {
+        if (::binding.isInitialized) {
+            binding.cardRulesMigrationBanner.visibility = View.GONE
         }
     }
     

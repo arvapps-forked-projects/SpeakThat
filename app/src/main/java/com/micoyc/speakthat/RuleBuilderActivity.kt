@@ -401,33 +401,57 @@ class RuleBuilderActivity : AppCompatActivity() {
     
     private fun showTriggerMenu() {
         val triggerOptions = arrayOf(
-            "Bluetooth Device Connected",
-            "Screen State (On/Off)",
-            "Time Schedule",
-            "WiFi Network Connected"
+            getString(R.string.trigger_battery_percentage_title),
+            getString(R.string.trigger_charging_status_title),
+            getString(R.string.trigger_notification_contains_title),
+            getString(R.string.trigger_notification_from_title),
+            getString(R.string.trigger_foreground_app_title),
+            getString(R.string.trigger_device_unlocked_title),
+            getString(R.string.trigger_screen_orientation_title),
+            getString(R.string.trigger_bluetooth_device_connected),
+            getString(R.string.item_trigger_wired_headphones),
+            getString(R.string.trigger_screen_state_title),
+            getString(R.string.trigger_time_schedule_title),
+            getString(R.string.trigger_wifi_network_connected)
         )
         
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.dialog_title_add_trigger))
             .setItems(triggerOptions) { _, which ->
                 when (which) {
-                    0 -> addBluetoothTrigger()
-                    1 -> addScreenStateTrigger()
-                    2 -> addTimeScheduleTrigger()
-                    3 -> addWifiNetworkTrigger()
+                    0 -> addBatteryPercentageTrigger()
+                    1 -> addChargingStatusTrigger()
+                    2 -> addNotificationContainsTrigger()
+                    3 -> addNotificationFromTrigger()
+                    4 -> addForegroundAppTrigger()
+                    5 -> addDeviceUnlockedTrigger()
+                    6 -> addScreenOrientationTrigger()
+                    7 -> addBluetoothTrigger()
+                    8 -> addWiredHeadphonesTrigger()
+                    9 -> addScreenStateTrigger()
+                    10 -> addTimeScheduleTrigger()
+                    11 -> addWifiNetworkTrigger()
                 }
             }
             .show()
     }
     
     private fun showActionMenu() {
-        val actionOptions = arrayOf("Skip this notification")
+        val actionOptions = arrayOf(
+            getString(R.string.action_custom_speech_format_title),
+            getString(R.string.action_force_private_title),
+            getString(R.string.action_override_private_title),
+            getString(R.string.action_skip_notification_title)
+        )
         
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.dialog_title_add_action))
             .setItems(actionOptions) { _, which ->
                 when (which) {
-                    0 -> addDisableSpeakThatAction()
+                    0 -> addCustomSpeechFormatAction()
+                    1 -> addForcePrivateAction()
+                    2 -> addOverridePrivateAction()
+                    3 -> addSkipNotificationAction()
                 }
             }
             .show()
@@ -435,20 +459,36 @@ class RuleBuilderActivity : AppCompatActivity() {
     
     private fun showExceptionMenu() {
         val exceptionOptions = arrayOf(
-            "Bluetooth Device Connected",
-            "Screen State (On/Off)",
-            "Time Schedule",
-            "WiFi Network Connected"
+            getString(R.string.trigger_battery_percentage_title),
+            getString(R.string.trigger_charging_status_title),
+            getString(R.string.trigger_notification_contains_title),
+            getString(R.string.trigger_notification_from_title),
+            getString(R.string.trigger_foreground_app_title),
+            getString(R.string.trigger_device_unlocked_title),
+            getString(R.string.trigger_screen_orientation_title),
+            getString(R.string.trigger_bluetooth_device_connected),
+            getString(R.string.item_trigger_wired_headphones),
+            getString(R.string.trigger_screen_state_title),
+            getString(R.string.trigger_time_schedule_title),
+            getString(R.string.trigger_wifi_network_connected)
         )
         
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.dialog_title_add_exception))
             .setItems(exceptionOptions) { _, which ->
                 when (which) {
-                    0 -> addBluetoothException()
-                    1 -> addScreenStateException()
-                    2 -> addTimeScheduleException()
-                    3 -> addWifiNetworkException()
+                    0 -> addBatteryPercentageException()
+                    1 -> addChargingStatusException()
+                    2 -> addNotificationContainsException()
+                    3 -> addNotificationFromException()
+                    4 -> addForegroundAppException()
+                    5 -> addDeviceUnlockedException()
+                    6 -> addScreenOrientationException()
+                    7 -> addBluetoothException()
+                    8 -> addWiredHeadphonesException()
+                    9 -> addScreenStateException()
+                    10 -> addTimeScheduleException()
+                    11 -> addWifiNetworkException()
                 }
             }
             .show()
@@ -457,6 +497,38 @@ class RuleBuilderActivity : AppCompatActivity() {
     // Trigger methods
     private fun addBluetoothTrigger() {
         launchTriggerConfig(TriggerType.BLUETOOTH_DEVICE, null)
+    }
+
+    private fun addWiredHeadphonesTrigger() {
+        launchTriggerConfig(TriggerType.WIRED_HEADPHONES, null)
+    }
+
+    private fun addBatteryPercentageTrigger() {
+        launchTriggerConfig(TriggerType.BATTERY_PERCENTAGE, null)
+    }
+
+    private fun addChargingStatusTrigger() {
+        launchTriggerConfig(TriggerType.CHARGING_STATUS, null)
+    }
+
+    private fun addNotificationContainsTrigger() {
+        launchTriggerConfig(TriggerType.NOTIFICATION_CONTAINS, null)
+    }
+
+    private fun addNotificationFromTrigger() {
+        launchTriggerConfig(TriggerType.NOTIFICATION_FROM, null)
+    }
+
+    private fun addForegroundAppTrigger() {
+        launchTriggerConfig(TriggerType.FOREGROUND_APP, null)
+    }
+
+    private fun addDeviceUnlockedTrigger() {
+        launchTriggerConfig(TriggerType.DEVICE_UNLOCKED, null)
+    }
+
+    private fun addScreenOrientationTrigger() {
+        launchTriggerConfig(TriggerType.SCREEN_ORIENTATION, null)
     }
     
     private fun addScreenStateTrigger() {
@@ -491,8 +563,20 @@ class RuleBuilderActivity : AppCompatActivity() {
     }
     
     // Action methods
-    private fun addDisableSpeakThatAction() {
-        launchActionConfig(ActionType.DISABLE_SPEAKTHAT, null)
+    private fun addSkipNotificationAction() {
+        launchActionConfig(ActionType.SKIP_NOTIFICATION, null)
+    }
+
+    private fun addCustomSpeechFormatAction() {
+        launchActionConfig(ActionType.APPLY_CUSTOM_SPEECH_FORMAT, null)
+    }
+
+    private fun addForcePrivateAction() {
+        launchActionConfig(ActionType.FORCE_PRIVATE, null)
+    }
+
+    private fun addOverridePrivateAction() {
+        launchActionConfig(ActionType.OVERRIDE_PRIVATE, null)
     }
     
     private fun launchActionConfig(actionType: ActionType, existingAction: Action?) {
@@ -537,6 +621,38 @@ class RuleBuilderActivity : AppCompatActivity() {
         
         exceptionAdapter.addException(exception)
         InAppLogger.logUserAction("Added Bluetooth exception", "RuleBuilderActivity")
+    }
+
+    private fun addWiredHeadphonesException() {
+        launchExceptionConfig(ExceptionType.WIRED_HEADPHONES, null)
+    }
+
+    private fun addBatteryPercentageException() {
+        launchExceptionConfig(ExceptionType.BATTERY_PERCENTAGE, null)
+    }
+
+    private fun addChargingStatusException() {
+        launchExceptionConfig(ExceptionType.CHARGING_STATUS, null)
+    }
+
+    private fun addNotificationContainsException() {
+        launchExceptionConfig(ExceptionType.NOTIFICATION_CONTAINS, null)
+    }
+
+    private fun addNotificationFromException() {
+        launchExceptionConfig(ExceptionType.NOTIFICATION_FROM, null)
+    }
+
+    private fun addForegroundAppException() {
+        launchExceptionConfig(ExceptionType.FOREGROUND_APP, null)
+    }
+
+    private fun addDeviceUnlockedException() {
+        launchExceptionConfig(ExceptionType.DEVICE_UNLOCKED, null)
+    }
+
+    private fun addScreenOrientationException() {
+        launchExceptionConfig(ExceptionType.SCREEN_ORIENTATION, null)
     }
     
     private fun addScreenStateException() {

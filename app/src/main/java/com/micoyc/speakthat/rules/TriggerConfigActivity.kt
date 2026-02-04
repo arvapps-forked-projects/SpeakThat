@@ -1,12 +1,20 @@
 package com.micoyc.speakthat.rules
 
 import android.app.TimePickerDialog
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.ArrayAdapter
+import android.widget.Toast
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import com.micoyc.speakthat.AccessibilityUtils
+import com.micoyc.speakthat.AppListManager
+import com.micoyc.speakthat.AppPickerActivity
 import com.micoyc.speakthat.InAppLogger
 import com.micoyc.speakthat.R
 import com.micoyc.speakthat.databinding.ActivityTriggerConfigBinding
@@ -20,6 +28,11 @@ class TriggerConfigActivity : AppCompatActivity() {
     private var triggerType: TriggerType? = null
     private var originalTrigger: Trigger? = null
     private var isEditing = false
+
+    private val selectedForegroundApps = mutableListOf<String>()
+    private lateinit var foregroundAppPickerLauncher: ActivityResultLauncher<Intent>
+    private val selectedNotificationFromApps = mutableListOf<String>()
+    private lateinit var notificationFromPickerLauncher: ActivityResultLauncher<Intent>
     
 
     
@@ -36,7 +49,7 @@ class TriggerConfigActivity : AppCompatActivity() {
         supportActionBar?.title = "Configure Trigger"
         
         // Get intent data
-        triggerType = intent.getSerializableExtra(EXTRA_TRIGGER_TYPE) as? TriggerType
+        triggerType = intent.getSerializableExtraCompat(EXTRA_TRIGGER_TYPE)
         isEditing = intent.getBooleanExtra(EXTRA_IS_EDITING, false)
         
         if (isEditing) {
@@ -44,23 +57,42 @@ class TriggerConfigActivity : AppCompatActivity() {
             originalTrigger = Trigger.fromJson(triggerData ?: "")
         }
         
+        setupForegroundAppPickerLauncher()
+        setupNotificationFromPickerLauncher()
         setupUI()
         loadCurrentValues()
     }
     
     private fun applySavedTheme() {
         val sharedPreferences = getSharedPreferences("SpeakThatPrefs", MODE_PRIVATE)
-        val isDarkMode = sharedPreferences.getBoolean("dark_mode", false)
+        val isDarkMode = sharedPreferences.getBoolean("dark_mode", true) // Default to dark mode
         AppCompatDelegate.setDefaultNightMode(
             if (isDarkMode) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
         )
     }
+
+    private inline fun <reified T : java.io.Serializable> Intent.getSerializableExtraCompat(key: String): T? {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            getSerializableExtra(key, T::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            getSerializableExtra(key) as? T
+        }
+    }
     
     private fun setupUI() {
         when (triggerType) {
+            TriggerType.BATTERY_PERCENTAGE -> setupBatteryPercentageUI()
+            TriggerType.CHARGING_STATUS -> setupChargingStatusUI()
+            TriggerType.DEVICE_UNLOCKED -> setupDeviceUnlockedUI()
+            TriggerType.NOTIFICATION_CONTAINS -> setupNotificationContainsUI()
+            TriggerType.NOTIFICATION_FROM -> setupNotificationFromUI()
+            TriggerType.FOREGROUND_APP -> setupForegroundAppUI()
+            TriggerType.SCREEN_ORIENTATION -> setupScreenOrientationUI()
             TriggerType.SCREEN_STATE -> setupScreenStateUI()
             TriggerType.TIME_SCHEDULE -> setupTimeScheduleUI()
             TriggerType.BLUETOOTH_DEVICE -> setupBluetoothUI()
+            TriggerType.WIRED_HEADPHONES -> setupWiredHeadphonesUI()
             TriggerType.WIFI_NETWORK -> setupWifiUI()
             else -> {
                 InAppLogger.logError("TriggerConfigActivity", "Unknown trigger type: $triggerType")
@@ -87,6 +119,88 @@ class TriggerConfigActivity : AppCompatActivity() {
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, screenStateOptions)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         binding.spinnerScreenState.adapter = adapter
+    }
+
+    private fun setupBatteryPercentageUI() {
+        binding.cardBatteryPercentage.visibility = View.VISIBLE
+
+        val modeOptions = arrayOf(
+            getString(R.string.trigger_battery_mode_above),
+            getString(R.string.trigger_battery_mode_below)
+        )
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modeOptions)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.spinnerBatteryMode.adapter = adapter
+
+        binding.sliderBatteryPercentage.addOnChangeListener { _, value, _ ->
+            updateBatteryPercentageDisplay(value.toInt())
+        }
+
+        updateBatteryPercentageDisplay(binding.sliderBatteryPercentage.value.toInt())
+    }
+
+    private fun setupChargingStatusUI() {
+        binding.cardChargingStatus.visibility = View.VISIBLE
+
+        val statusOptions = arrayOf(
+            getString(R.string.trigger_battery_status_charging),
+            getString(R.string.trigger_battery_status_discharging)
+        )
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, statusOptions)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.spinnerChargingStatus.adapter = adapter
+    }
+
+    private fun setupNotificationContainsUI() {
+        binding.cardNotificationContains.visibility = View.VISIBLE
+    }
+
+    private fun setupNotificationFromUI() {
+        binding.cardNotificationFrom.visibility = View.VISIBLE
+        binding.textNotificationFromDescription.text = getString(R.string.trigger_notification_from_description)
+        binding.btnManageNotificationFromApps.setOnClickListener {
+            openNotificationFromAppPicker()
+        }
+        updateNotificationFromSummary()
+    }
+
+    private fun setupForegroundAppUI() {
+        binding.cardForegroundApp.visibility = View.VISIBLE
+        binding.textForegroundAppDescription.text = getString(R.string.trigger_foreground_app_description)
+        binding.btnManageForegroundApps.setOnClickListener {
+            if (!AccessibilityUtils.isAccessibilityServiceEnabled(this)) {
+                Toast.makeText(
+                    this,
+                    getString(R.string.trigger_foreground_app_accessibility_required),
+                    Toast.LENGTH_LONG
+                ).show()
+                return@setOnClickListener
+            }
+            openForegroundAppPicker()
+        }
+        updateForegroundAppSummary()
+    }
+
+    private fun setupDeviceUnlockedUI() {
+        binding.cardDeviceUnlocked.visibility = View.VISIBLE
+        val modeOptions = arrayOf(
+            getString(R.string.trigger_device_unlocked_mode_unlocked),
+            getString(R.string.trigger_device_unlocked_mode_locked)
+        )
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modeOptions)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.spinnerDeviceUnlockedMode.adapter = adapter
+    }
+
+    private fun setupScreenOrientationUI() {
+        binding.cardScreenOrientation.visibility = View.VISIBLE
+        val modeOptions = arrayOf(
+            getString(R.string.trigger_screen_orientation_portrait),
+            getString(R.string.trigger_screen_orientation_landscape)
+        )
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modeOptions)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.spinnerScreenOrientation.adapter = adapter
     }
     
     private fun setupTimeScheduleUI() {
@@ -121,13 +235,23 @@ class TriggerConfigActivity : AppCompatActivity() {
         }
     }
     
+    private fun setupWiredHeadphonesUI() {
+        binding.cardWiredHeadphones.visibility = View.VISIBLE
+        
+        // Set up connection state options
+        val connectionStateOptions = arrayOf(
+            getString(R.string.trigger_wired_headphones_disconnected),
+            getString(R.string.trigger_wired_headphones_connected)
+        )
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, connectionStateOptions)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.spinnerWiredHeadphonesConnectionState.adapter = adapter
+        // Default to "Disconnected" (index 0)
+        binding.spinnerWiredHeadphonesConnectionState.setSelection(0)
+    }
+    
     private fun setupWifiUI() {
         binding.cardWifi.visibility = View.VISIBLE
-        
-        // Check if we can resolve WiFi SSIDs
-        if (!WifiCapabilityChecker.canResolveWifiSSID(this)) {
-            showWifiCompatibilityWarning()
-        }
         
         // Set up WiFi options
         binding.switchAnyNetwork.setOnCheckedChangeListener { _, isChecked ->
@@ -141,25 +265,75 @@ class TriggerConfigActivity : AppCompatActivity() {
             showWifiNetworkSelection()
         }
     }
-    
-    private fun showWifiCompatibilityWarning() {
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("Note on WiFi Compatibility")
-            .setMessage("SpeakThat was unable to resolve your current SSID. This is likely because your version of Android has security restrictions that prevent SpeakThat from identifying what network you're connected to.\n\nIt's not impossible, however. So if you're a better developer than me then please contribute on the GitHub.")
-            .setPositiveButton("Create Anyway") { _, _ ->
-                // User wants to create the rule anyway
+
+    private fun setupForegroundAppPickerLauncher() {
+        foregroundAppPickerLauncher = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            if (result.resultCode == RESULT_OK && result.data != null) {
+                val selected = result.data?.getStringArrayListExtra(
+                    AppPickerActivity.EXTRA_SELECTED_PACKAGES
+                ) ?: arrayListOf()
+                selectedForegroundApps.clear()
+                selectedForegroundApps.addAll(selected)
+                updateForegroundAppSummary()
             }
-            .setNegativeButton("Nevermind") { _, _ ->
-                // User wants to go back
+        }
+    }
+
+    private fun setupNotificationFromPickerLauncher() {
+        notificationFromPickerLauncher = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            if (result.resultCode == RESULT_OK && result.data != null) {
+                val selected = result.data?.getStringArrayListExtra(
+                    AppPickerActivity.EXTRA_SELECTED_PACKAGES
+                ) ?: arrayListOf()
+                selectedNotificationFromApps.clear()
+                selectedNotificationFromApps.addAll(selected)
+                updateNotificationFromSummary()
             }
-            .setNeutralButton("Open GitHub") { _, _ ->
-                // Open GitHub link
-                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/mitchib1440/SpeakThat"))
-                startActivity(intent)
-            }
-            .create()
-        
-        dialog.show()
+        }
+    }
+
+    private fun openNotificationFromAppPicker() {
+        val selectedPackages = ArrayList(selectedNotificationFromApps)
+        val intent = AppPickerActivity.createIntent(
+            this,
+            getString(R.string.trigger_notification_from_title),
+            selectedPackages,
+            arrayListOf(),
+            false
+        )
+        notificationFromPickerLauncher.launch(intent)
+    }
+
+    private fun openForegroundAppPicker() {
+        val selectedPackages = ArrayList(selectedForegroundApps)
+        val intent = AppPickerActivity.createIntent(
+            this,
+            getString(R.string.trigger_foreground_app_title),
+            selectedPackages,
+            arrayListOf(),
+            false
+        )
+        foregroundAppPickerLauncher.launch(intent)
+    }
+
+    private fun updateNotificationFromSummary() {
+        val countText = getString(
+            R.string.trigger_notification_from_selected_count,
+            selectedNotificationFromApps.size
+        )
+        binding.textNotificationFromSummary.text = countText
+    }
+
+    private fun updateForegroundAppSummary() {
+        val countText = getString(
+            R.string.trigger_foreground_app_selected_count,
+            selectedForegroundApps.size
+        )
+        binding.textForegroundAppsSummary.text = countText
     }
     
     private fun setupDaySelection() {
@@ -276,7 +450,8 @@ class TriggerConfigActivity : AppCompatActivity() {
         }
         
         try {
-            val bluetoothAdapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+            val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+            val bluetoothAdapter = bluetoothManager?.adapter
             
             if (bluetoothAdapter == null) {
                 AlertDialog.Builder(this)
@@ -398,7 +573,9 @@ class TriggerConfigActivity : AppCompatActivity() {
                     val scanResults = wifiManager.scanResults
                     if (scanResults.isNotEmpty()) {
                         availableNetworks.addAll(scanResults.map { result ->
-                            result.SSID.removeSurrounding("\"")
+                            @Suppress("DEPRECATION")
+                            val ssid = result.SSID
+                            ssid.removeSurrounding("\"")
                         }.distinct())
                         InAppLogger.log("TriggerConfig", "Found ${availableNetworks.size} WiFi networks from scan results")
                     } else {
@@ -486,6 +663,70 @@ class TriggerConfigActivity : AppCompatActivity() {
             binding.switchInvertWifi.isChecked = trigger.inverted
             
             when (trigger.type) {
+                TriggerType.BATTERY_PERCENTAGE -> {
+                    val mode = trigger.data["mode"] as? String ?: "above"
+                    val percentageRaw = trigger.data["percentage"]
+                    val percentage = when (percentageRaw) {
+                        is Int -> percentageRaw
+                        is Long -> percentageRaw.toInt()
+                        is Double -> percentageRaw.toInt()
+                        is Float -> percentageRaw.toInt()
+                        is Number -> percentageRaw.toInt()
+                        is String -> percentageRaw.toIntOrNull()
+                        else -> null
+                    } ?: 50
+
+                    val modeIndex = if (mode == "below") 1 else 0
+                    binding.spinnerBatteryMode.setSelection(modeIndex)
+                    binding.sliderBatteryPercentage.value = percentage.toFloat()
+                    updateBatteryPercentageDisplay(percentage)
+                }
+                TriggerType.CHARGING_STATUS -> {
+                    val status = trigger.data["status"] as? String ?: "charging"
+                    val statusIndex = if (status == "discharging") 1 else 0
+                    binding.spinnerChargingStatus.setSelection(statusIndex)
+                }
+                TriggerType.DEVICE_UNLOCKED -> {
+                    val mode = trigger.data["mode"] as? String ?: "unlocked"
+                    val modeIndex = if (mode == "locked") 1 else 0
+                    binding.spinnerDeviceUnlockedMode.setSelection(modeIndex)
+                }
+                TriggerType.NOTIFICATION_CONTAINS -> {
+                    val phrase = trigger.data["phrase"] as? String ?: ""
+                    val caseSensitive = trigger.data["case_sensitive"] as? Boolean ?: false
+                    binding.editNotificationPhrase.setText(phrase)
+                    binding.checkNotificationCaseSensitive.isChecked = caseSensitive
+                    binding.switchInvertNotificationContains.isChecked = trigger.inverted
+                }
+                TriggerType.NOTIFICATION_FROM -> {
+                    val packagesData = trigger.data["app_packages"]
+                    val packages = when (packagesData) {
+                        is Set<*> -> packagesData.filterIsInstance<String>()
+                        is List<*> -> packagesData.filterIsInstance<String>()
+                        else -> emptyList()
+                    }
+                    selectedNotificationFromApps.clear()
+                    selectedNotificationFromApps.addAll(packages)
+                    binding.switchInvertNotificationFrom.isChecked = trigger.inverted
+                    updateNotificationFromSummary()
+                }
+                TriggerType.FOREGROUND_APP -> {
+                    val packagesData = trigger.data["app_packages"]
+                    val packages = when (packagesData) {
+                        is Set<*> -> packagesData.filterIsInstance<String>()
+                        is List<*> -> packagesData.filterIsInstance<String>()
+                        else -> emptyList()
+                    }
+                    selectedForegroundApps.clear()
+                    selectedForegroundApps.addAll(packages)
+                    binding.switchInvertForegroundApp.isChecked = trigger.inverted
+                    updateForegroundAppSummary()
+                }
+                TriggerType.SCREEN_ORIENTATION -> {
+                    val mode = trigger.data["mode"] as? String ?: "portrait"
+                    val modeIndex = if (mode == "landscape") 1 else 0
+                    binding.spinnerScreenOrientation.setSelection(modeIndex)
+                }
                 TriggerType.SCREEN_STATE -> {
                     val screenState = trigger.data["screen_state"] as? String ?: "on"
                     val position = if (screenState == "on") 0 else 1
@@ -584,6 +825,11 @@ class TriggerConfigActivity : AppCompatActivity() {
                     updateSelectedDaysDisplay()
                 }
                 
+                TriggerType.WIRED_HEADPHONES -> {
+                    val connectionState = trigger.data["connection_state"] as? String ?: "disconnected"
+                    val stateIndex = if (connectionState == "connected") 1 else 0
+                    binding.spinnerWiredHeadphonesConnectionState.setSelection(stateIndex)
+                }
                 TriggerType.BLUETOOTH_DEVICE -> {
                     val deviceAddressesData = trigger.data["device_addresses"]
                     val deviceAddresses = when (deviceAddressesData) {
@@ -605,7 +851,8 @@ class TriggerConfigActivity : AppCompatActivity() {
                         // Try to get device names for better display
                         val deviceInfo = mutableListOf<String>()
                         try {
-                            val bluetoothAdapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                            val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+                            val bluetoothAdapter = bluetoothManager?.adapter
                             if (bluetoothAdapter != null && bluetoothAdapter.isEnabled) {
                                 val bondedDevices = bluetoothAdapter.bondedDevices
                                 for (address in deviceAddresses) {
@@ -676,14 +923,24 @@ class TriggerConfigActivity : AppCompatActivity() {
     
     private fun saveTrigger() {
         val trigger = when (triggerType) {
+            TriggerType.BATTERY_PERCENTAGE -> createBatteryPercentageTrigger()
+            TriggerType.CHARGING_STATUS -> createChargingStatusTrigger()
+            TriggerType.DEVICE_UNLOCKED -> createDeviceUnlockedTrigger()
+            TriggerType.NOTIFICATION_CONTAINS -> createNotificationContainsTrigger()
+            TriggerType.NOTIFICATION_FROM -> createNotificationFromTrigger()
+            TriggerType.FOREGROUND_APP -> createForegroundAppTrigger()
+            TriggerType.SCREEN_ORIENTATION -> createScreenOrientationTrigger()
             TriggerType.SCREEN_STATE -> createScreenStateTrigger()
             TriggerType.TIME_SCHEDULE -> createTimeScheduleTrigger()
             TriggerType.BLUETOOTH_DEVICE -> createBluetoothTrigger()
+            TriggerType.WIRED_HEADPHONES -> createWiredHeadphonesTrigger()
             TriggerType.WIFI_NETWORK -> {
                 val wifiTrigger = createWifiTrigger()
                 
                 // Check if this is a WiFi trigger with specific networks
-                val networkSSIDs = wifiTrigger.data["network_ssids"] as? Set<String>
+                val networkSSIDs = (wifiTrigger.data["network_ssids"] as? Collection<*>)
+                    ?.mapNotNull { it as? String }
+                    ?.toSet()
                 if (networkSSIDs?.isNotEmpty() == true) {
                     val canResolve = WifiCapabilityChecker.canResolveWifiSSID(this)
                     if (!canResolve) {
@@ -764,6 +1021,199 @@ class TriggerConfigActivity : AppCompatActivity() {
             )
         }
     }
+
+    private fun createBatteryPercentageTrigger(): Trigger {
+        val mode = if (binding.spinnerBatteryMode.selectedItemPosition == 1) "below" else "above"
+        val percentage = binding.sliderBatteryPercentage.value.toInt()
+        val description = if (mode == "below") {
+            getString(R.string.rule_trigger_battery_below, percentage)
+        } else {
+            getString(R.string.rule_trigger_battery_above, percentage)
+        }
+
+        return if (isEditing && originalTrigger != null) {
+            originalTrigger!!.copy(
+                data = mapOf(
+                    "mode" to mode,
+                    "percentage" to percentage
+                ),
+                description = description,
+                inverted = false
+            )
+        } else {
+            Trigger(
+                type = TriggerType.BATTERY_PERCENTAGE,
+                data = mapOf(
+                    "mode" to mode,
+                    "percentage" to percentage
+                ),
+                description = description,
+                inverted = false
+            )
+        }
+    }
+
+    private fun createNotificationContainsTrigger(): Trigger {
+        val phrase = binding.editNotificationPhrase.text?.toString().orEmpty().trim()
+        val caseSensitive = binding.checkNotificationCaseSensitive.isChecked
+        val inverted = binding.switchInvertNotificationContains.isChecked
+        val description = if (inverted) {
+            getString(R.string.rule_trigger_notification_not_contains, phrase)
+        } else {
+            getString(R.string.rule_trigger_notification_contains, phrase)
+        }
+
+        return if (isEditing && originalTrigger != null) {
+            originalTrigger!!.copy(
+                data = mapOf(
+                    "phrase" to phrase,
+                    "case_sensitive" to caseSensitive
+                ),
+                description = description,
+                inverted = inverted
+            )
+        } else {
+            Trigger(
+                type = TriggerType.NOTIFICATION_CONTAINS,
+                data = mapOf(
+                    "phrase" to phrase,
+                    "case_sensitive" to caseSensitive
+                ),
+                description = description,
+                inverted = inverted
+            )
+        }
+    }
+
+    private fun createNotificationFromTrigger(): Trigger {
+        val selectedPackages = selectedNotificationFromApps.toSet()
+        val inverted = binding.switchInvertNotificationFrom.isChecked
+        val description = if (selectedPackages.size == 1) {
+            val packageName = selectedPackages.first()
+            val appName = AppListManager.findAppByPackage(this, packageName)?.displayName ?: packageName
+            getString(R.string.rule_trigger_notification_from_single, appName)
+        } else {
+            getString(R.string.rule_trigger_notification_from_multiple, selectedPackages.size)
+        }.let { base ->
+            if (inverted) getString(R.string.rule_trigger_notification_from_not, base) else base
+        }
+
+        return if (isEditing && originalTrigger != null) {
+            originalTrigger!!.copy(
+                data = mapOf("app_packages" to selectedPackages),
+                description = description,
+                inverted = inverted
+            )
+        } else {
+            Trigger(
+                type = TriggerType.NOTIFICATION_FROM,
+                data = mapOf("app_packages" to selectedPackages),
+                description = description,
+                inverted = inverted
+            )
+        }
+    }
+
+    private fun createForegroundAppTrigger(): Trigger {
+        val selectedPackages = selectedForegroundApps.toSet()
+        val inverted = binding.switchInvertForegroundApp.isChecked
+        val description = if (selectedPackages.size == 1) {
+            val packageName = selectedPackages.first()
+            val appName = AppListManager.findAppByPackage(this, packageName)?.displayName ?: packageName
+            getString(R.string.rule_trigger_foreground_app_single, appName)
+        } else {
+            getString(R.string.rule_trigger_foreground_app_multiple, selectedPackages.size)
+        }.let { base ->
+            if (inverted) getString(R.string.rule_trigger_foreground_app_not, base) else base
+        }
+
+        return if (isEditing && originalTrigger != null) {
+            originalTrigger!!.copy(
+                data = mapOf("app_packages" to selectedPackages),
+                description = description,
+                inverted = inverted
+            )
+        } else {
+            Trigger(
+                type = TriggerType.FOREGROUND_APP,
+                data = mapOf("app_packages" to selectedPackages),
+                description = description,
+                inverted = inverted
+            )
+        }
+    }
+
+    private fun createDeviceUnlockedTrigger(): Trigger {
+        val mode = if (binding.spinnerDeviceUnlockedMode.selectedItemPosition == 1) "locked" else "unlocked"
+        val description = if (mode == "locked") {
+            getString(R.string.rule_trigger_device_locked)
+        } else {
+            getString(R.string.rule_trigger_device_unlocked)
+        }
+
+        return if (isEditing && originalTrigger != null) {
+            originalTrigger!!.copy(
+                data = mapOf("mode" to mode),
+                description = description,
+                inverted = false
+            )
+        } else {
+            Trigger(
+                type = TriggerType.DEVICE_UNLOCKED,
+                data = mapOf("mode" to mode),
+                description = description,
+                inverted = false
+            )
+        }
+    }
+
+    private fun createScreenOrientationTrigger(): Trigger {
+        val mode = if (binding.spinnerScreenOrientation.selectedItemPosition == 1) "landscape" else "portrait"
+        val description = if (mode == "landscape") {
+            getString(R.string.rule_trigger_orientation_landscape)
+        } else {
+            getString(R.string.rule_trigger_orientation_portrait)
+        }
+
+        return if (isEditing && originalTrigger != null) {
+            originalTrigger!!.copy(
+                data = mapOf("mode" to mode),
+                description = description,
+                inverted = false
+            )
+        } else {
+            Trigger(
+                type = TriggerType.SCREEN_ORIENTATION,
+                data = mapOf("mode" to mode),
+                description = description,
+                inverted = false
+            )
+        }
+    }
+
+    private fun createChargingStatusTrigger(): Trigger {
+        val status = if (binding.spinnerChargingStatus.selectedItemPosition == 1) "discharging" else "charging"
+        val description = if (status == "discharging") {
+            getString(R.string.rule_trigger_battery_discharging)
+        } else {
+            getString(R.string.rule_trigger_battery_charging)
+        }
+
+        return if (isEditing && originalTrigger != null) {
+            originalTrigger!!.copy(
+                data = mapOf("status" to status),
+                description = description,
+                inverted = false
+            )
+        } else {
+            Trigger(
+                type = TriggerType.CHARGING_STATUS,
+                data = mapOf("status" to status),
+                description = description,
+                inverted = false
+            )
+        }
+    }
     
     private fun createTimeScheduleTrigger(): Trigger {
         val startTime = startTimeMillis ?: 0L
@@ -816,13 +1266,22 @@ class TriggerConfigActivity : AppCompatActivity() {
             )
         }
     }
+
+    private fun updateBatteryPercentageDisplay(percentage: Int) {
+        binding.textBatteryPercentageValue.text = getString(
+            R.string.trigger_battery_percentage_value,
+            percentage
+        )
+    }
     
     private fun createBluetoothTrigger(): Trigger {
         val deviceAddresses = if (binding.switchAnyDevice.isChecked) {
             emptySet<String>()
         } else {
             // Use stored addresses from tag if available, otherwise parse from text
-            val storedAddresses = binding.editDeviceAddresses.tag as? Set<String>
+            val storedAddresses = (binding.editDeviceAddresses.tag as? Set<*>)
+                ?.filterIsInstance<String>()
+                ?.toSet()
             if (storedAddresses != null) {
                 storedAddresses
             } else {
@@ -863,12 +1322,44 @@ class TriggerConfigActivity : AppCompatActivity() {
         }
     }
     
+    private fun createWiredHeadphonesTrigger(): Trigger {
+        val connectionState = if (binding.spinnerWiredHeadphonesConnectionState.selectedItemPosition == 1) {
+            "connected"
+        } else {
+            "disconnected"
+        }
+        
+        val description = if (connectionState == "connected") {
+            getString(R.string.rule_trigger_wired_headphones_connected)
+        } else {
+            getString(R.string.rule_trigger_wired_headphones_disconnected)
+        }
+        
+        return if (isEditing && originalTrigger != null) {
+            originalTrigger!!.copy(
+                type = TriggerType.WIRED_HEADPHONES,
+                data = mapOf("connection_state" to connectionState),
+                description = description,
+                inverted = false
+            )
+        } else {
+            Trigger(
+                type = TriggerType.WIRED_HEADPHONES,
+                data = mapOf("connection_state" to connectionState),
+                description = description,
+                inverted = false
+            )
+        }
+    }
+    
     private fun createWifiTrigger(): Trigger {
         val networkSSIDs = if (binding.switchAnyNetwork.isChecked) {
             emptySet<String>()
         } else {
             // Use stored SSIDs from tag if available, otherwise parse from text
-            val storedSSIDs = binding.editNetworkSSIDs.tag as? Set<String>
+            val storedSSIDs = (binding.editNetworkSSIDs.tag as? Set<*>)
+                ?.filterIsInstance<String>()
+                ?.toSet()
             if (storedSSIDs != null) {
                 storedSSIDs
             } else {

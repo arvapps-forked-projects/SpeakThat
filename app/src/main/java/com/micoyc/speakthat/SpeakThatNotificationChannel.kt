@@ -13,8 +13,8 @@ import android.util.Log
 object SpeakThatNotificationChannel {
     private const val TAG = "SpeakThatChannel"
     const val CHANNEL_ID = "SpeakThat_Channel"
-    private const val CHANNEL_NAME = "SpeakThat Notifications"
-    private const val CHANNEL_DESCRIPTION = "Notifications from SpeakThat app"
+    private const val CHANNEL_NAME = "SpeakThat! Notifications"
+    private const val CHANNEL_DESCRIPTION = "Notifications from SpeakThat!"
 
     fun ensureExists(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -30,7 +30,7 @@ object SpeakThatNotificationChannel {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = CHANNEL_DESCRIPTION
                 setSound(null, null)

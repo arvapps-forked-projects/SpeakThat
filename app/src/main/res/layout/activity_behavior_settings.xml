@@ -9,12 +9,15 @@
     android:fitsSystemWindows="true"
     tools:context=".settings.BehaviorSettingsActivity">
 
-
-
-    <ScrollView
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:padding="16dp">
+        android:layout_height="match_parent">
+
+        <ScrollView
+            android:id="@+id/behaviorSettingsScrollView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="16dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -1736,6 +1739,77 @@
 
                         </LinearLayout>
 
+                        <!-- Hold Duration Section -->
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/behavior_wave_hold_title"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/purple_card_text_primary"
+                            android:layout_marginBottom="8dp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/behavior_wave_hold_description"
+                            android:textSize="14sp"
+                            android:textColor="@color/purple_card_text_secondary"
+                            android:layout_marginBottom="16dp" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginBottom="16dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/behavior_wave_hold_0ms"
+                                android:textSize="12sp"
+                                android:textColor="@color/purple_card_text_secondary" />
+
+                            <com.google.android.material.slider.Slider
+                                android:id="@+id/sliderWaveHold"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginHorizontal="12dp"
+                                android:valueFrom="0.0"
+                                android:valueTo="500.0"
+                                android:value="150.0"
+                                android:stepSize="10.0"
+                                app:thumbColor="@color/white_100"
+                                app:trackColorActive="@color/white_100"
+                                app:trackColorInactive="@color/white_200" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/behavior_wave_hold_500ms"
+                                android:textSize="12sp"
+                                android:textColor="@color/purple_card_text_secondary" />
+
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:layout_marginBottom="16dp">
+
+                            <TextView
+                                android:id="@+id/textWaveHold"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/behavior_wave_hold_current_placeholder"
+                                android:textSize="14sp"
+                                android:textColor="@color/purple_card_text_secondary" />
+
+                        </LinearLayout>
+
                         <!-- @string/behavior_wave_test_button Section -->
                         <TextView
                             android:layout_width="wrap_content"
@@ -3125,5 +3199,35 @@
         </LinearLayout>
 
     </ScrollView>
+
+        <LinearLayout
+            android:id="@+id/loadingContainer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="gone">
+
+            <ProgressBar
+                android:id="@+id/progressLoading"
+                style="?android:attr/progressBarStyleLarge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+
+            <TextView
+                android:id="@+id/loadingText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:textColor="@color/white_100"
+                android:textSize="14sp"
+                android:textAlignment="center"
+                android:gravity="center"
+                android:text="@string/loading_line_5" />
+
+        </LinearLayout>
+
+    </FrameLayout>
 
 </LinearLayout> 

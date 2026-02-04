@@ -103,7 +103,10 @@ object RuleTemplates {
                 val startMinute = data["startMinute"] as? Int ?: 0
                 val endHour = data["endHour"] as? Int ?: 0
                 val endMinute = data["endMinute"] as? Int ?: 0
-                val selectedDays = data["selectedDays"] as? Set<Int> ?: emptySet()
+                val selectedDays = (data["selectedDays"] as? Collection<*>)
+                    ?.mapNotNull { it as? Int }
+                    ?.toSet()
+                    ?: emptySet()
                 
                 // Convert 1-based days (Monday=1, Tuesday=2, ..., Sunday=7) to 0-based days (Sunday=0, Monday=1, ..., Saturday=6)
                 val convertedDays = selectedDays.map { day ->
@@ -172,7 +175,7 @@ object RuleTemplates {
             ),
             actions = listOf(
                 ActionTemplate(
-                    type = ActionType.DISABLE_SPEAKTHAT,
+                    type = ActionType.SKIP_NOTIFICATION,
                     description = context.getString(R.string.template_action_skip_notification)
                 )
             )
@@ -203,7 +206,7 @@ object RuleTemplates {
             ),
             actions = listOf(
                 ActionTemplate(
-                    type = ActionType.DISABLE_SPEAKTHAT,
+                    type = ActionType.SKIP_NOTIFICATION,
                     description = context.getString(R.string.template_action_skip_notification)
                 )
             )
@@ -228,7 +231,7 @@ object RuleTemplates {
             ),
             actions = listOf(
                 ActionTemplate(
-                    type = ActionType.DISABLE_SPEAKTHAT,
+                    type = ActionType.SKIP_NOTIFICATION,
                     description = context.getString(R.string.template_action_skip_notification)
                 )
             )
@@ -252,7 +255,7 @@ object RuleTemplates {
             ),
             actions = listOf(
                 ActionTemplate(
-                    type = ActionType.DISABLE_SPEAKTHAT,
+                    type = ActionType.SKIP_NOTIFICATION,
                     description = context.getString(R.string.template_action_skip_notification)
                 )
             )

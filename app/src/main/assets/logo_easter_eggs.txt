@@ -94,11 +94,11 @@ SpeakThat! I invented the notification squad!
 SpeakThat! Your phone probably scratches at a level 6 with deeper grooves at a level 7!
 SpeakThat! I see you've discovered the delay feature. Now I can build suspense before delivering your pizza notifications! [DELAY_ONLY]
 SpeakThat! That awkward moment when your notification delay is longer than your attention span. [DELAY_ONLY]
-SpeakThat! I'm not procrastinating, I'm just using your new delay setting. There's a difference! [DELAY_ONLY]
+SpeakThat! I'm not procrastinating, I'm just using your delay setting. There's a difference! [DELAY_ONLY]
 SpeakThat! Fun fact: During my delay period, I like to practice my pronunciation. Worcestershire. Worcestershire. Nailed it! [DELAY_ONLY]
 SpeakThat! Your {DELAY_TIME} gives me just enough time to clear my digital throat. Ahem!
 SpeakThat! Did you know SpeakThat has a sister app called TestThat? It's never been released because it was built specifically to test me. But my developer will send you a copy if you ask nicely for it.
-SpeakThat! I love the new delay feature! It's like dramatic pause... for notifications!
+SpeakThat! I love the delay feature! It's like dramatic pause... for notifications!
 SpeakThat! If you ever drop your phone in the sea, I'll make sure to tell you about the current events.
 SpeakThat! Breaking: Local app learns patience. Experts baffled by this revolutionary concept.
 SpeakThat! With great delay comes great responsibility. And slightly less jarring notification experiences.
@@ -211,7 +211,7 @@ SpeakThat! I'm basically a mind reader now - I know when you want me to stop tal
 SpeakThat! Your phone can sense your hand! What a time to be alive! [WAVE_ONLY]
 SpeakThat! I'm like a cat - I can sense when you're about to touch me! [WAVE_ONLY]
 SpeakThat! Wave-to-stop: Because sometimes shaking your phone just isn't dramatic enough! [WAVE_ONLY]
-SpeakThat! I can feel your hand approaching! It's like I have notification ESP! [WAVE_ONLY]
+SpeakThat! I can feel your hand approaching! It's like I have human E S P! [WAVE_ONLY]
 SpeakThat! Wave detection only makes me shut up because I'm afraid you're about to slap me! [WAVE_ONLY]
 SpeakThat! Look at you, controlling your phone with your hand! [WAVE_ONLY]
 SpeakThat! Google tried the whole wave-sensing thing many years ago with the Pixel 4. I still do it better! [WAVE_ONLY]
@@ -261,7 +261,7 @@ SpeakThat! Not recommended for FBI agents!
 SpeakThat! All forks must be spooned!
 SpeakThat! If buying isn't owning, piracy isn't stealing!
 SpeakThat! Did you know it's impossible to pirate this app? It's true!
-SpeakThat! If the app has been helpful to you, consider supporting development! Go to SpeakThat Settings, then to Donate!
+SpeakThat! If the app has been helpful to you, consider supporting development! Go to SpeakThat Settings, then Say Thanks!
 SpeakThat! Email your best jokes to my developer using the Support and Feedback option! They might make it onto this list!
 SpeakThat! We sincerely apologise for the time you have wasted on the flashy logo. We won't stop you, however.
 SpeakThat! PullThat! TwistThat! FlipThat! BopThat! PushThat! DropThat! TapThat!
@@ -288,7 +288,7 @@ SpeakThat! Why read a URL when I can just say the domain? It's like the differen
 SpeakThat! I used to be a URL megaphone. Now I'm a domain diplomat. Much more civilized!
 SpeakThat! URL handling: Because life's too short to listen to someone spell out 'https://www.reddit.com/r/notifications/comments/abc123/this_is_why_we_cant_have_nice_things/'
 SpeakThat! I'm like a URL GPS - I take the scenic route and show you only the important landmarks!
-SpeakThat! My new URL handling features are so good, even Amazon's tracking department is impressed with my brevity!
+SpeakThat! My URL handling features are so good, even Amazon's tracking department is impressed with my brevity!
 SpeakThat! URL shortening: When 'bit.ly' becomes 'bit.ly' and everyone's happy about it!
 SpeakThat! Better for Britain than the BNP!
 SpeakThat! Born in 2025, and still too old for Donald Trump!
@@ -441,7 +441,7 @@ SpeakThat! You should be able to fix your stuff!
 SpeakThat! I will never say never! Unless of course it's in a notification!
 SpeakThat! If you ever do something for someone and they don't seem to appreciate it, don't get mad. Just scrub it off your to-do list next time!
 SpeakThat! When life gives you lemons, don’t make lemonade. Make life take the lemons back! Get mad! I don’t want your damn lemons, what the hell am I supposed to do with these? Demand to see life’s manager! Make life rue the day it thought it could give Cave Johnson lemons! Do you know who I am? I’m the man who’s gonna burn your house down! With the lemons! I’m gonna get my engineers to invent a combustible lemon that burns your house down!
-SpeakThat! There are one zero types of people. Those who understand binary, and those who don't.
+SpeakThat! There are 10 types of people. Those who understand binary, and those who don't.
 SpeakThat! Make sure to visit w w w dot, speak that dot app!
 SpeakThat! Reject digital ID! Your privacy matters!
 SpeakThat! I believe in two things - notifications, and boobs!
@@ -449,5 +449,7 @@ SpeakThat! If it's your birthday today, then happy birthday! If it's not, then p
 SpeakThat! Better for your ears than Travis Scott!
 SpeakThat! More entertaining than the X-Factor!
 SpeakThat! Smarter than every Twitch streamer in existence!
-SpeakThat! Speaks more clearly than XQC!
+SpeakThat! Speaks clearer than XQC!
 SpeakThat! Commits fewer hate crimes than Asmongold!
+SpeakThat! Friendship is magic!
+SpeakThat! I handle the talking, you handle the breathing. Unless you have pneumonia.

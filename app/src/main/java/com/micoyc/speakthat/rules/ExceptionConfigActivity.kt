@@ -1,11 +1,19 @@
 package com.micoyc.speakthat.rules
 
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.ArrayAdapter
+import android.widget.Toast
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import com.micoyc.speakthat.AccessibilityUtils
+import com.micoyc.speakthat.AppListManager
+import com.micoyc.speakthat.AppPickerActivity
 import com.micoyc.speakthat.InAppLogger
 import com.micoyc.speakthat.R
 import com.micoyc.speakthat.databinding.ActivityExceptionConfigBinding
@@ -23,6 +31,11 @@ class ExceptionConfigActivity : AppCompatActivity() {
     private var startTimeMillis: Long? = null
     private var endTimeMillis: Long? = null
     private val selectedDays = mutableSetOf<Int>()
+
+    private val selectedForegroundApps = mutableListOf<String>()
+    private lateinit var foregroundAppPickerLauncher: ActivityResultLauncher<Intent>
+    private val selectedNotificationFromApps = mutableListOf<String>()
+    private lateinit var notificationFromPickerLauncher: ActivityResultLauncher<Intent>
 
     companion object {
         const val EXTRA_EXCEPTION_TYPE = "exception_type"
@@ -44,14 +57,16 @@ class ExceptionConfigActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.title = "Configure Exception"
         
-        exceptionType = intent.getSerializableExtra(EXTRA_EXCEPTION_TYPE) as? ExceptionType
+        exceptionType = intent.getSerializableExtraCompat(EXTRA_EXCEPTION_TYPE)
         isEditing = intent.getBooleanExtra(EXTRA_IS_EDITING, false)
         
         if (isEditing) {
             val exceptionData = intent.getStringExtra(EXTRA_EXCEPTION_DATA)
             originalException = Exception.fromJson(exceptionData ?: "")
         }
-        
+
+        setupForegroundAppPickerLauncher()
+        setupNotificationFromPickerLauncher()
         setupUI()
         loadCurrentValues()
     }
@@ -66,9 +81,17 @@ class ExceptionConfigActivity : AppCompatActivity() {
 
     private fun setupUI() {
         when (exceptionType) {
+            ExceptionType.BATTERY_PERCENTAGE -> setupBatteryPercentageUI()
+            ExceptionType.CHARGING_STATUS -> setupChargingStatusUI()
+            ExceptionType.DEVICE_UNLOCKED -> setupDeviceUnlockedUI()
+            ExceptionType.NOTIFICATION_CONTAINS -> setupNotificationContainsUI()
+            ExceptionType.NOTIFICATION_FROM -> setupNotificationFromUI()
+            ExceptionType.FOREGROUND_APP -> setupForegroundAppUI()
+            ExceptionType.SCREEN_ORIENTATION -> setupScreenOrientationUI()
             ExceptionType.SCREEN_STATE -> setupScreenStateUI()
             ExceptionType.TIME_SCHEDULE -> setupTimeScheduleUI()
             ExceptionType.BLUETOOTH_DEVICE -> setupBluetoothUI()
+            ExceptionType.WIRED_HEADPHONES -> setupWiredHeadphonesUI()
             ExceptionType.WIFI_NETWORK -> setupWifiUI()
             else -> {
                 InAppLogger.logError("ExceptionConfigActivity", "Unknown exception type: $exceptionType")
@@ -95,6 +118,88 @@ class ExceptionConfigActivity : AppCompatActivity() {
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, screenStates)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         binding.spinnerScreenState.adapter = adapter
+    }
+
+    private fun setupBatteryPercentageUI() {
+        binding.cardBatteryPercentage.visibility = View.VISIBLE
+
+        val modeOptions = arrayOf(
+            getString(R.string.trigger_battery_mode_above),
+            getString(R.string.trigger_battery_mode_below)
+        )
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modeOptions)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.spinnerBatteryMode.adapter = adapter
+
+        binding.sliderBatteryPercentage.addOnChangeListener { _, value, _ ->
+            updateBatteryPercentageDisplay(value.toInt())
+        }
+
+        updateBatteryPercentageDisplay(binding.sliderBatteryPercentage.value.toInt())
+    }
+
+    private fun setupChargingStatusUI() {
+        binding.cardChargingStatus.visibility = View.VISIBLE
+
+        val statusOptions = arrayOf(
+            getString(R.string.trigger_battery_status_charging),
+            getString(R.string.trigger_battery_status_discharging)
+        )
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, statusOptions)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.spinnerChargingStatus.adapter = adapter
+    }
+
+    private fun setupNotificationContainsUI() {
+        binding.cardNotificationContains.visibility = View.VISIBLE
+    }
+
+    private fun setupNotificationFromUI() {
+        binding.cardNotificationFrom.visibility = View.VISIBLE
+        binding.textNotificationFromDescription.text = getString(R.string.trigger_notification_from_description)
+        binding.btnManageNotificationFromApps.setOnClickListener {
+            openNotificationFromAppPicker()
+        }
+        updateNotificationFromSummary()
+    }
+
+    private fun setupForegroundAppUI() {
+        binding.cardForegroundApp.visibility = View.VISIBLE
+        binding.textForegroundAppDescription.text = getString(R.string.trigger_foreground_app_description)
+        binding.btnManageForegroundApps.setOnClickListener {
+            if (!AccessibilityUtils.isAccessibilityServiceEnabled(this)) {
+                Toast.makeText(
+                    this,
+                    getString(R.string.trigger_foreground_app_accessibility_required),
+                    Toast.LENGTH_LONG
+                ).show()
+                return@setOnClickListener
+            }
+            openForegroundAppPicker()
+        }
+        updateForegroundAppSummary()
+    }
+
+    private fun setupDeviceUnlockedUI() {
+        binding.cardDeviceUnlocked.visibility = View.VISIBLE
+        val modeOptions = arrayOf(
+            getString(R.string.trigger_device_unlocked_mode_unlocked),
+            getString(R.string.trigger_device_unlocked_mode_locked)
+        )
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modeOptions)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.spinnerDeviceUnlockedMode.adapter = adapter
+    }
+
+    private fun setupScreenOrientationUI() {
+        binding.cardScreenOrientation.visibility = View.VISIBLE
+        val modeOptions = arrayOf(
+            getString(R.string.trigger_screen_orientation_portrait),
+            getString(R.string.trigger_screen_orientation_landscape)
+        )
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modeOptions)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.spinnerScreenOrientation.adapter = adapter
     }
 
     private fun setupTimeScheduleUI() {
@@ -127,7 +232,22 @@ class ExceptionConfigActivity : AppCompatActivity() {
             showBluetoothDeviceSelection()
         }
     }
-
+    
+    private fun setupWiredHeadphonesUI() {
+        binding.cardWiredHeadphones.visibility = View.VISIBLE
+        
+        // Set up connection state options
+        val connectionStateOptions = arrayOf(
+            getString(R.string.exception_wired_headphones_disconnected),
+            getString(R.string.exception_wired_headphones_connected)
+        )
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, connectionStateOptions)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.spinnerWiredHeadphonesConnectionState.adapter = adapter
+        // Default to "Disconnected" (index 0)
+        binding.spinnerWiredHeadphonesConnectionState.setSelection(0)
+    }
+    
     private fun setupWifiUI() {
         binding.cardWifi.visibility = View.VISIBLE
         
@@ -143,6 +263,76 @@ class ExceptionConfigActivity : AppCompatActivity() {
         binding.buttonSelectNetworks.setOnClickListener {
             showWifiNetworkSelection()
         }
+    }
+
+    private fun setupForegroundAppPickerLauncher() {
+        foregroundAppPickerLauncher = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            if (result.resultCode == RESULT_OK && result.data != null) {
+                val selected = result.data?.getStringArrayListExtra(
+                    AppPickerActivity.EXTRA_SELECTED_PACKAGES
+                ) ?: arrayListOf()
+                selectedForegroundApps.clear()
+                selectedForegroundApps.addAll(selected)
+                updateForegroundAppSummary()
+            }
+        }
+    }
+
+    private fun setupNotificationFromPickerLauncher() {
+        notificationFromPickerLauncher = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            if (result.resultCode == RESULT_OK && result.data != null) {
+                val selected = result.data?.getStringArrayListExtra(
+                    AppPickerActivity.EXTRA_SELECTED_PACKAGES
+                ) ?: arrayListOf()
+                selectedNotificationFromApps.clear()
+                selectedNotificationFromApps.addAll(selected)
+                updateNotificationFromSummary()
+            }
+        }
+    }
+
+    private fun openNotificationFromAppPicker() {
+        val selectedPackages = ArrayList(selectedNotificationFromApps)
+        val intent = AppPickerActivity.createIntent(
+            this,
+            getString(R.string.trigger_notification_from_title),
+            selectedPackages,
+            arrayListOf(),
+            false
+        )
+        notificationFromPickerLauncher.launch(intent)
+    }
+
+    private fun openForegroundAppPicker() {
+        val selectedPackages = ArrayList(selectedForegroundApps)
+        val intent = AppPickerActivity.createIntent(
+            this,
+            getString(R.string.trigger_foreground_app_title),
+            selectedPackages,
+            arrayListOf(),
+            false
+        )
+        foregroundAppPickerLauncher.launch(intent)
+    }
+
+    private fun updateNotificationFromSummary() {
+        val countText = getString(
+            R.string.trigger_notification_from_selected_count,
+            selectedNotificationFromApps.size
+        )
+        binding.textNotificationFromSummary.text = countText
+    }
+
+    private fun updateForegroundAppSummary() {
+        val countText = getString(
+            R.string.trigger_foreground_app_selected_count,
+            selectedForegroundApps.size
+        )
+        binding.textForegroundAppsSummary.text = countText
     }
 
     private fun setupDaySelection() {
@@ -222,7 +412,8 @@ class ExceptionConfigActivity : AppCompatActivity() {
         }
         
         try {
-            val bluetoothAdapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+            val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+            val bluetoothAdapter = bluetoothManager?.adapter
             
             if (bluetoothAdapter == null) {
                 AlertDialog.Builder(this)
@@ -339,7 +530,9 @@ class ExceptionConfigActivity : AppCompatActivity() {
                     val scanResults = wifiManager.scanResults
                     if (scanResults.isNotEmpty()) {
                         availableNetworks.addAll(scanResults.map { result ->
-                            result.SSID.removeSurrounding("\"")
+                            @Suppress("DEPRECATION")
+                            val ssid = result.SSID
+                            ssid.removeSurrounding("\"")
                         }.distinct())
                     }
                 } catch (e: SecurityException) {
@@ -419,6 +612,70 @@ class ExceptionConfigActivity : AppCompatActivity() {
             binding.switchInvertWifi.isChecked = exception.inverted
             
             when (exception.type) {
+                ExceptionType.BATTERY_PERCENTAGE -> {
+                    val mode = exception.data["mode"] as? String ?: "above"
+                    val percentageRaw = exception.data["percentage"]
+                    val percentage = when (percentageRaw) {
+                        is Int -> percentageRaw
+                        is Long -> percentageRaw.toInt()
+                        is Double -> percentageRaw.toInt()
+                        is Float -> percentageRaw.toInt()
+                        is Number -> percentageRaw.toInt()
+                        is String -> percentageRaw.toIntOrNull()
+                        else -> null
+                    } ?: 50
+
+                    val modeIndex = if (mode == "below") 1 else 0
+                    binding.spinnerBatteryMode.setSelection(modeIndex)
+                    binding.sliderBatteryPercentage.value = percentage.toFloat()
+                    updateBatteryPercentageDisplay(percentage)
+                }
+                ExceptionType.CHARGING_STATUS -> {
+                    val status = exception.data["status"] as? String ?: "charging"
+                    val statusIndex = if (status == "discharging") 1 else 0
+                    binding.spinnerChargingStatus.setSelection(statusIndex)
+                }
+                ExceptionType.DEVICE_UNLOCKED -> {
+                    val mode = exception.data["mode"] as? String ?: "unlocked"
+                    val modeIndex = if (mode == "locked") 1 else 0
+                    binding.spinnerDeviceUnlockedMode.setSelection(modeIndex)
+                }
+                ExceptionType.NOTIFICATION_CONTAINS -> {
+                    val phrase = exception.data["phrase"] as? String ?: ""
+                    val caseSensitive = exception.data["case_sensitive"] as? Boolean ?: false
+                    binding.editNotificationPhrase.setText(phrase)
+                    binding.checkNotificationCaseSensitive.isChecked = caseSensitive
+                    binding.switchInvertNotificationContains.isChecked = exception.inverted
+                }
+                ExceptionType.NOTIFICATION_FROM -> {
+                    val packagesData = exception.data["app_packages"]
+                    val packages = when (packagesData) {
+                        is Set<*> -> packagesData.filterIsInstance<String>()
+                        is List<*> -> packagesData.filterIsInstance<String>()
+                        else -> emptyList()
+                    }
+                    selectedNotificationFromApps.clear()
+                    selectedNotificationFromApps.addAll(packages)
+                    binding.switchInvertNotificationFrom.isChecked = exception.inverted
+                    updateNotificationFromSummary()
+                }
+                ExceptionType.FOREGROUND_APP -> {
+                    val packagesData = exception.data["app_packages"]
+                    val packages = when (packagesData) {
+                        is Set<*> -> packagesData.filterIsInstance<String>()
+                        is List<*> -> packagesData.filterIsInstance<String>()
+                        else -> emptyList()
+                    }
+                    selectedForegroundApps.clear()
+                    selectedForegroundApps.addAll(packages)
+                    binding.switchInvertForegroundApp.isChecked = exception.inverted
+                    updateForegroundAppSummary()
+                }
+                ExceptionType.SCREEN_ORIENTATION -> {
+                    val mode = exception.data["mode"] as? String ?: "portrait"
+                    val modeIndex = if (mode == "landscape") 1 else 0
+                    binding.spinnerScreenOrientation.setSelection(modeIndex)
+                }
                 ExceptionType.SCREEN_STATE -> {
                     val screenState = exception.data["screen_state"] as? String ?: "on"
                     val position = if (screenState == "on") 0 else 1
@@ -428,7 +685,10 @@ class ExceptionConfigActivity : AppCompatActivity() {
                 ExceptionType.TIME_SCHEDULE -> {
                     val startTime = exception.data["start_time"] as? Long ?: 0L
                     val endTime = exception.data["end_time"] as? Long ?: 0L
-                    val daysOfWeek = exception.data["days_of_week"] as? Set<Int> ?: emptySet()
+                    val daysOfWeek = (exception.data["days_of_week"] as? Collection<*>)
+                        ?.mapNotNull { it as? Int }
+                        ?.toSet()
+                        ?: emptySet()
                     
                     // Set time displays
                     val startHour = (startTime / (60 * 60 * 1000)).toInt()
@@ -473,6 +733,11 @@ class ExceptionConfigActivity : AppCompatActivity() {
                     updateSelectedDays(0, false) // Update display
                 }
                 
+                ExceptionType.WIRED_HEADPHONES -> {
+                    val connectionState = exception.data["connection_state"] as? String ?: "disconnected"
+                    val stateIndex = if (connectionState == "connected") 1 else 0
+                    binding.spinnerWiredHeadphonesConnectionState.setSelection(stateIndex)
+                }
                 ExceptionType.BLUETOOTH_DEVICE -> {
                     val deviceAddressesData = exception.data["device_addresses"]
                     val deviceAddresses = when (deviceAddressesData) {
@@ -494,7 +759,8 @@ class ExceptionConfigActivity : AppCompatActivity() {
                         // Try to get device names for better display
                         val deviceInfo = mutableListOf<String>()
                         try {
-                            val bluetoothAdapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                            val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+                            val bluetoothAdapter = bluetoothManager?.adapter
                             if (bluetoothAdapter != null && bluetoothAdapter.isEnabled) {
                                 val bondedDevices = bluetoothAdapter.bondedDevices
                                 for (address in deviceAddresses) {
@@ -565,14 +831,24 @@ class ExceptionConfigActivity : AppCompatActivity() {
 
     private fun saveException() {
         val exception = when (exceptionType) {
+            ExceptionType.BATTERY_PERCENTAGE -> createBatteryPercentageException()
+            ExceptionType.CHARGING_STATUS -> createChargingStatusException()
+            ExceptionType.DEVICE_UNLOCKED -> createDeviceUnlockedException()
+            ExceptionType.NOTIFICATION_CONTAINS -> createNotificationContainsException()
+            ExceptionType.NOTIFICATION_FROM -> createNotificationFromException()
+            ExceptionType.FOREGROUND_APP -> createForegroundAppException()
+            ExceptionType.SCREEN_ORIENTATION -> createScreenOrientationException()
             ExceptionType.SCREEN_STATE -> createScreenStateException()
             ExceptionType.TIME_SCHEDULE -> createTimeScheduleException()
             ExceptionType.BLUETOOTH_DEVICE -> createBluetoothException()
+            ExceptionType.WIRED_HEADPHONES -> createWiredHeadphonesException()
             ExceptionType.WIFI_NETWORK -> {
                 val wifiException = createWifiException()
                 
                 // Check if this is a WiFi exception with specific networks
-                val networkSSIDs = wifiException.data["network_ssids"] as? Set<String>
+                val networkSSIDs = (wifiException.data["network_ssids"] as? Collection<*>)
+                    ?.mapNotNull { it as? String }
+                    ?.toSet()
                 if (networkSSIDs?.isNotEmpty() == true) {
                     val canResolve = WifiCapabilityChecker.canResolveWifiSSID(this)
                     if (!canResolve) {
@@ -654,6 +930,199 @@ class ExceptionConfigActivity : AppCompatActivity() {
         }
     }
 
+    private fun createBatteryPercentageException(): Exception {
+        val mode = if (binding.spinnerBatteryMode.selectedItemPosition == 1) "below" else "above"
+        val percentage = binding.sliderBatteryPercentage.value.toInt()
+        val description = if (mode == "below") {
+            getString(R.string.rule_exception_battery_below, percentage)
+        } else {
+            getString(R.string.rule_exception_battery_above, percentage)
+        }
+
+        return if (isEditing && originalException != null) {
+            originalException!!.copy(
+                data = mapOf(
+                    "mode" to mode,
+                    "percentage" to percentage
+                ),
+                description = description,
+                inverted = false
+            )
+        } else {
+            Exception(
+                type = ExceptionType.BATTERY_PERCENTAGE,
+                data = mapOf(
+                    "mode" to mode,
+                    "percentage" to percentage
+                ),
+                description = description,
+                inverted = false
+            )
+        }
+    }
+
+    private fun createNotificationContainsException(): Exception {
+        val phrase = binding.editNotificationPhrase.text?.toString().orEmpty().trim()
+        val caseSensitive = binding.checkNotificationCaseSensitive.isChecked
+        val inverted = binding.switchInvertNotificationContains.isChecked
+        val description = if (inverted) {
+            getString(R.string.rule_exception_notification_not_contains, phrase)
+        } else {
+            getString(R.string.rule_exception_notification_contains, phrase)
+        }
+
+        return if (isEditing && originalException != null) {
+            originalException!!.copy(
+                data = mapOf(
+                    "phrase" to phrase,
+                    "case_sensitive" to caseSensitive
+                ),
+                description = description,
+                inverted = inverted
+            )
+        } else {
+            Exception(
+                type = ExceptionType.NOTIFICATION_CONTAINS,
+                data = mapOf(
+                    "phrase" to phrase,
+                    "case_sensitive" to caseSensitive
+                ),
+                description = description,
+                inverted = inverted
+            )
+        }
+    }
+
+    private fun createNotificationFromException(): Exception {
+        val selectedPackages = selectedNotificationFromApps.toSet()
+        val inverted = binding.switchInvertNotificationFrom.isChecked
+        val description = if (selectedPackages.size == 1) {
+            val packageName = selectedPackages.first()
+            val appName = AppListManager.findAppByPackage(this, packageName)?.displayName ?: packageName
+            getString(R.string.rule_exception_notification_from_single, appName)
+        } else {
+            getString(R.string.rule_exception_notification_from_multiple, selectedPackages.size)
+        }.let { base ->
+            if (inverted) getString(R.string.rule_exception_notification_from_not, base) else base
+        }
+
+        return if (isEditing && originalException != null) {
+            originalException!!.copy(
+                data = mapOf("app_packages" to selectedPackages),
+                description = description,
+                inverted = inverted
+            )
+        } else {
+            Exception(
+                type = ExceptionType.NOTIFICATION_FROM,
+                data = mapOf("app_packages" to selectedPackages),
+                description = description,
+                inverted = inverted
+            )
+        }
+    }
+
+    private fun createForegroundAppException(): Exception {
+        val selectedPackages = selectedForegroundApps.toSet()
+        val inverted = binding.switchInvertForegroundApp.isChecked
+        val description = if (selectedPackages.size == 1) {
+            val packageName = selectedPackages.first()
+            val appName = AppListManager.findAppByPackage(this, packageName)?.displayName ?: packageName
+            getString(R.string.rule_exception_foreground_app_single, appName)
+        } else {
+            getString(R.string.rule_exception_foreground_app_multiple, selectedPackages.size)
+        }.let { base ->
+            if (inverted) getString(R.string.rule_exception_foreground_app_not, base) else base
+        }
+
+        return if (isEditing && originalException != null) {
+            originalException!!.copy(
+                data = mapOf("app_packages" to selectedPackages),
+                description = description,
+                inverted = inverted
+            )
+        } else {
+            Exception(
+                type = ExceptionType.FOREGROUND_APP,
+                data = mapOf("app_packages" to selectedPackages),
+                description = description,
+                inverted = inverted
+            )
+        }
+    }
+
+    private fun createDeviceUnlockedException(): Exception {
+        val mode = if (binding.spinnerDeviceUnlockedMode.selectedItemPosition == 1) "locked" else "unlocked"
+        val description = if (mode == "locked") {
+            getString(R.string.rule_exception_device_locked)
+        } else {
+            getString(R.string.rule_exception_device_unlocked)
+        }
+
+        return if (isEditing && originalException != null) {
+            originalException!!.copy(
+                data = mapOf("mode" to mode),
+                description = description,
+                inverted = false
+            )
+        } else {
+            Exception(
+                type = ExceptionType.DEVICE_UNLOCKED,
+                data = mapOf("mode" to mode),
+                description = description,
+                inverted = false
+            )
+        }
+    }
+
+    private fun createScreenOrientationException(): Exception {
+        val mode = if (binding.spinnerScreenOrientation.selectedItemPosition == 1) "landscape" else "portrait"
+        val description = if (mode == "landscape") {
+            getString(R.string.rule_exception_orientation_landscape)
+        } else {
+            getString(R.string.rule_exception_orientation_portrait)
+        }
+
+        return if (isEditing && originalException != null) {
+            originalException!!.copy(
+                data = mapOf("mode" to mode),
+                description = description,
+                inverted = false
+            )
+        } else {
+            Exception(
+                type = ExceptionType.SCREEN_ORIENTATION,
+                data = mapOf("mode" to mode),
+                description = description,
+                inverted = false
+            )
+        }
+    }
+
+    private fun createChargingStatusException(): Exception {
+        val status = if (binding.spinnerChargingStatus.selectedItemPosition == 1) "discharging" else "charging"
+        val description = if (status == "discharging") {
+            getString(R.string.rule_exception_battery_discharging)
+        } else {
+            getString(R.string.rule_exception_battery_charging)
+        }
+
+        return if (isEditing && originalException != null) {
+            originalException!!.copy(
+                data = mapOf("status" to status),
+                description = description,
+                inverted = false
+            )
+        } else {
+            Exception(
+                type = ExceptionType.CHARGING_STATUS,
+                data = mapOf("status" to status),
+                description = description,
+                inverted = false
+            )
+        }
+    }
+
     private fun createTimeScheduleException(): Exception {
         val startTime = startTimeMillis ?: 0L
         val endTime = endTimeMillis ?: 0L
@@ -718,6 +1187,22 @@ class ExceptionConfigActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateBatteryPercentageDisplay(percentage: Int) {
+        binding.textBatteryPercentageValue.text = getString(
+            R.string.trigger_battery_percentage_value,
+            percentage
+        )
+    }
+
+    private inline fun <reified T : java.io.Serializable> Intent.getSerializableExtraCompat(key: String): T? {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            getSerializableExtra(key, T::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            getSerializableExtra(key) as? T
+        }
+    }
+
     private fun createBluetoothException(): Exception {
         val isAnyDevice = binding.switchAnyDevice.isChecked
         
@@ -725,7 +1210,9 @@ class ExceptionConfigActivity : AppCompatActivity() {
             emptySet<String>()
         } else {
             // Try to get from tag first, then parse from text
-            val addressesFromTag = binding.editDeviceAddresses.tag as? Set<String>
+            val addressesFromTag = (binding.editDeviceAddresses.tag as? Set<*>)
+                ?.filterIsInstance<String>()
+                ?.toSet()
             if (addressesFromTag != null) {
                 addressesFromTag
             } else {
@@ -768,7 +1255,37 @@ class ExceptionConfigActivity : AppCompatActivity() {
             )
         }
     }
-
+    
+    private fun createWiredHeadphonesException(): Exception {
+        val connectionState = if (binding.spinnerWiredHeadphonesConnectionState.selectedItemPosition == 1) {
+            "connected"
+        } else {
+            "disconnected"
+        }
+        
+        val description = if (connectionState == "connected") {
+            getString(R.string.rule_exception_wired_headphones_connected)
+        } else {
+            getString(R.string.rule_exception_wired_headphones_disconnected)
+        }
+        
+        return if (isEditing && originalException != null) {
+            originalException!!.copy(
+                type = ExceptionType.WIRED_HEADPHONES,
+                data = mapOf("connection_state" to connectionState),
+                description = description,
+                inverted = false
+            )
+        } else {
+            Exception(
+                type = ExceptionType.WIRED_HEADPHONES,
+                data = mapOf("connection_state" to connectionState),
+                description = description,
+                inverted = false
+            )
+        }
+    }
+    
     private fun createWifiException(): Exception {
         val isAnyNetwork = binding.switchAnyNetwork.isChecked
         
@@ -776,7 +1293,9 @@ class ExceptionConfigActivity : AppCompatActivity() {
             emptySet<String>()
         } else {
             // Try to get from tag first, then parse from text
-            val ssidsFromTag = binding.editNetworkSSIDs.tag as? Set<String>
+            val ssidsFromTag = (binding.editNetworkSSIDs.tag as? Set<*>)
+                ?.filterIsInstance<String>()
+                ?.toSet()
             if (ssidsFromTag != null) {
                 ssidsFromTag
             } else {

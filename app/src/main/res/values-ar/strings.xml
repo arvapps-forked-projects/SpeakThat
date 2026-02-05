@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SpeakThat!</string>
     <string name="service_name">SpeakThat Notification Reader</string>
@@ -55,17 +55,7 @@
     </string-array>
     <!-- Behavior Settings Dialogs -->
     <string name="notification_behavior_dialog_title">Notification Behavior Options</string>
-    <string name="notification_behavior_dialog_message">Choose how SpeakThat handles multiple notifications:
-
-<b>ðŸ”„ Interrupt</b> - Stops current notification and reads new one immediately. Best for urgent notifications.
-
-<b>ðŸ“‹ Queue</b> - Finishes current notification, then reads new ones in order. Nothing gets missed.
-
-<b>â­ï¸ Skip</b> - Ignores new notifications while reading. Simple but you might miss important ones.
-
-<b>ðŸ§  Smart (Recommended)</b> - Priority apps interrupt, others queue. Perfect balance of urgency and completeness.
-
-Smart mode lets you choose which apps are urgent enough to interrupt (like calls, messages) while other apps wait their turn.</string>
+    <string name="notification_behavior_dialog_message">Choose how SpeakThat handles multiple notifications: <b>ðŸ”„ Interrupt</b> - Stops current notification and reads new one immediately. Best for urgent notifications. <b>ðŸ“‹ Queue</b> - Finishes current notification, then reads new ones in order. Nothing gets missed. <b>â­ï¸ Skip</b> - Ignores new notifications while reading. Simple but you might miss important ones. <b>ðŸ§ Smart (Recommended)</b> - Priority apps interrupt, others queue. Perfect balance of urgency and completeness. Smart mode lets you choose which apps are urgent enough to interrupt (like calls, messages) while other apps wait their turn.</string>
     <string name="custom_app_names_title">Custom App Names</string>
     <string name="custom_app_names_description">Customize how app names are spoken in notifications</string>
     <string name="add_custom_app_name">Add Custom App Name</string>
@@ -73,38 +63,9 @@ Smart mode lets you choose which apps are urgent enough to interrupt (like calls
     <string name="custom_name_hint">Custom name (e.g., Twitter)</string>
     <string name="custom_app_names_example">Example: X app reads as Twitter</string>
     <string name="media_behavior_dialog_title">Media Behavior Options</string>
-    <string name="media_behavior_dialog_message">Choose how SpeakThat handles notifications while music/videos play:
-
-<b>ðŸŽµ Ignore</b> - Speaks over your media. Simple but can be disruptive.
-
-<b>â¸ï¸ Pause</b> - Pauses media completely while speaking. Good for podcasts, but interrupts music flow.
-
-<b>ðŸ”‰ Lower Audio (Recommended)</b> - Temporarily reduces media volume so you can hear both. Most natural experience.
-
-<b>Silence</b> - Doesn\'t speak while media plays. Quiet but you might miss important notifications.
-
-Lower Audio works like a car radio - it ducks the music down when speaking, then brings it back up. Perfect for music lovers who still want notifications.</string>
+    <string name="media_behavior_dialog_message">Choose how SpeakThat handles notifications while music/videos play: <b>ðŸŽµ Ignore</b> - Speaks over your media. Simple but can be disruptive. <b>â¸ï¸ Pause</b> - Pauses media completely while speaking. Good for podcasts, but interrupts music flow. <b>ðŸ”‰ Lower Audio (Recommended)</b> - Temporarily reduces media volume so you can hear both. Most natural experience. <b>Silence</b> - Doesn\'t speak while media plays. Quiet but you might miss important notifications. Lower Audio works like a car radio - it ducks the music down when speaking, then brings it back up. Perfect for music lovers who still want notifications.</string>
     <string name="shake_to_stop_dialog_title">Shake to Stop Feature</string>
-    <string name="shake_to_stop_dialog_message">Shake to Stop lets you instantly silence SpeakThat by shaking your device:
-
-<b>âœ¨ Why it\'s helpful:</b>
-â€¢ Stop embarrassing notifications in quiet places
-â€¢ Quick control when your hands are busy
-â€¢ Works even when screen is off
-â€¢ No fumbling for buttons
-
-<b>ðŸŽ¯ How it works:</b>
-â€¢ Shake your device firmly (like a dice shake)
-â€¢ Current notification stops immediately
-â€¢ Queued notifications are cleared
-â€¢ New notifications work normally
-
-<b>âš™ï¸ Customization:</b>
-â€¢ Adjust sensitivity for your preference
-â€¢ Test your shake strength with the meter
-â€¢ Works great for both gentle and vigorous shakers
-
-This feature is especially loved by people who get notifications during meetings, movies, or while driving.</string>
+    <string name="shake_to_stop_dialog_message">Shake to Stop lets you instantly silence SpeakThat by shaking your device: <b>âœ¨ Why it\'s helpful:</b> â€¢ Stop embarrassing notifications in quiet places â€¢ Quick control when your hands are busy â€¢ Works even when screen is off â€¢ No fumbling for buttons <b>ðŸŽ¯ How it works:</b> â€¢ Shake your device firmly (like a dice shake) â€¢ Current notification stops immediately â€¢ Queued notifications are cleared â€¢ New notifications work normally <b>âš™ï¸ Customization:</b> â€¢ Adjust sensitivity for your preference â€¢ Test your shake strength with the meter â€¢ Works great for both gentle and vigorous shakers This feature is especially loved by people who get notifications during meetings, movies, or while driving.</string>
     <string name="use_recommended">Use Recommended</string>
     <string name="got_it">Got it</string>
     <!-- Persistent/Silent Notification Filtering -->
@@ -126,28 +87,7 @@ This feature is especially loved by people who get notifications during meetings
     <string name="system_notifications_desc">Notifications from system apps (Android, Google services)</string>
     <!-- Wave to Stop Feature -->
     <string name="wave_to_stop_dialog_title">Wave to Stop Feature</string>
-    <string name="wave_to_stop_dialog_message">Wave to Stop lets you instantly silence SpeakThat by waving your hand in front of the device:
-
-<b>âœ¨ Why it\'s helpful:</b>
-â€¢ Perfect for users who can\'t shake their device
-â€¢ Great for phones on desks or mounts
-â€¢ Works with one hand
-â€¢ No physical device movement needed
-â€¢ Accessibility-friendly alternative to shake
-
-<b>ðŸŽ¯ How it works:</b>
-â€¢ Wave your hand in front of the device (like a magic gesture)
-â€¢ Uses the proximity sensor to detect hand movement
-â€¢ Current notification stops immediately
-â€¢ Queued notifications are cleared
-â€¢ New notifications work normally
-
-<b>âš™ï¸ Customization:</b>
-â€¢ Adjust sensitivity for your preference
-â€¢ Test your wave detection with the meter
-â€¢ Works great for different hand sizes and distances
-
-This feature is especially useful for accessibility, desk users, and anyone who prefers gesture control over physical movement.</string>
+    <string name="wave_to_stop_dialog_message">Wave to Stop lets you instantly silence SpeakThat by waving your hand in front of the device: <b>âœ¨ Why it\'s helpful:</b> â€¢ Perfect for users who can\'t shake their device â€¢ Great for phones on desks or mounts â€¢ Works with one hand â€¢ No physical device movement needed â€¢ Accessibility-friendly alternative to shake <b>ðŸŽ¯ How it works:</b> â€¢ Wave your hand in front of the device (like a magic gesture) â€¢ Uses the proximity sensor to detect hand movement â€¢ Current notification stops immediately â€¢ Queued notifications are cleared â€¢ New notifications work normally <b>âš™ï¸ Customization:</b> â€¢ Adjust sensitivity for your preference â€¢ Test your wave detection with the meter â€¢ Works great for different hand sizes and distances This feature is especially useful for accessibility, desk users, and anyone who prefers gesture control over physical movement.</string>
     <!-- About Page -->
     <string name="about">About</string>
     <string name="about_description_title">About SpeakThat!</string>
@@ -320,8 +260,8 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="rule_logic_and">and</string>
     <string name="rule_logic_or">or</string>
     <string name="rule_logic_xor">either</string>
-    <string name="rule_logic_separator">, </string>
-    <string name="rule_logic_final_separator">, and </string>
+    <string name="rule_logic_separator">,</string>
+    <string name="rule_logic_final_separator">, and</string>
     <!-- Critical Hardcoded Strings - Activity Titles -->
     <string name="title_behavior_settings">Behavior Settings</string>
     <string name="title_general_settings">General Settings</string>
@@ -464,8 +404,8 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="selftest_step1_rebinding">تم تفعيل الإذن - يتم إعادة توصيل مستمع الإشعارات...</string>
     <string name="selftest_step9_rebinding">انقطع اتصال المستمع - تتم المحاولة تلقائيًا...</string>
     <string name="listener_warning_title">يحتاج مستمع الإشعارات إلى اهتمام</string>
-    <string name="listener_warning_body_disconnected">قام أندرويد بفصل خدمة الإشعارات منذ %1$s. اضغط على "إعادة المحاولة" لطلب إعادة الاتصال. إذا تكرر الأمر، عطّل تحسين البطارية من الإعدادات العامة.</string>
-    <string name="listener_warning_body_stale">لم تتصل خدمة الإشعارات منذ %1$s. اضغط على "إعادة المحاولة" لتنشيطها، ثم راجع إعداد استثناء البطارية في الإعدادات العامة إذا استمرت المشكلة.</string>
+    <string name="listener_warning_body_disconnected">قام أندرويد بفصل خدمة الإشعارات منذ %1$s. اضغط على إعادة المحاولة لطلب إعادة الاتصال. إذا تكرر الأمر، عطّل تحسين البطارية من الإعدادات العامة.</string>
+    <string name="listener_warning_body_stale">لم تتصل خدمة الإشعارات منذ %1$s. اضغط على إعادة المحاولة لتنشيطها، ثم راجع إعداد استثناء البطارية في الإعدادات العامة إذا استمرت المشكلة.</string>
     <string name="listener_warning_time_unknown">مؤخرًا</string>
     <string name="listener_warning_retry_in_progress">تم إرسال طلب إعادة الربط</string>
     <string name="listener_warning_retry_denied">انتظر لحظة قبل المحاولة مرة أخرى</string>
@@ -531,7 +471,6 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="rule_action_custom_speech_format">Apply custom speech format</string>
     <string name="rule_action_force_private">Force private mode</string>
     <string name="rule_action_override_private">Override private mode</string>
-
     <!-- Action Configuration -->
     <string name="action_custom_speech_format_title">Apply Custom Speech Format</string>
     <string name="action_custom_speech_format_description">Read this notification using a custom speech format.</string>
@@ -575,17 +514,14 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="speech_placeholder_channel_label">{channel}</string>
     <string name="speech_placeholder_channel_desc">Notification channel ID</string>
     <string name="action_skip_notification_title">Skip this notification</string>
-
     <!-- Rule validation: battery/charging -->
     <string name="rule_error_invalid_battery_mode">Battery mode must be above or below</string>
     <string name="rule_error_invalid_battery_percentage">Battery percentage must be between 0 and 100</string>
     <string name="rule_error_invalid_charging_status">Charging status must be charging or discharging</string>
-
     <!-- Trigger menu labels -->
     <string name="trigger_bluetooth_device_connected">Bluetooth Device Connected</string>
     <string name="trigger_screen_state_title">Screen State (On/Off)</string>
     <string name="trigger_wifi_network_connected">WiFi Network Connected</string>
-
     <!-- Battery Percentage trigger -->
     <string name="trigger_battery_percentage_title">Battery Percentage</string>
     <string name="trigger_battery_percentage_description">Condition is considered met when the battery is above or below a certain percentage.</string>
@@ -594,14 +530,12 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="trigger_battery_mode_below">Below</string>
     <string name="trigger_battery_percentage_default">Selected value: 50%</string>
     <string name="trigger_battery_percentage_value">Selected value: %d%%</string>
-
     <!-- Charging Status trigger -->
     <string name="trigger_charging_status_title">Charging Status</string>
     <string name="trigger_charging_status_description">Condition is considered met when your device is being charged.</string>
     <string name="trigger_charging_status_label">Status</string>
     <string name="trigger_battery_status_charging">Charging</string>
     <string name="trigger_battery_status_discharging">Discharging</string>
-
     <!-- Battery trigger descriptions -->
     <string name="rule_trigger_battery_above">Battery is above %d%%</string>
     <string name="rule_trigger_battery_below">Battery is below %d%%</string>
@@ -611,39 +545,32 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="rule_exception_battery_below">Battery is below %d%%</string>
     <string name="rule_exception_battery_charging">Device is charging</string>
     <string name="rule_exception_battery_discharging">Device is discharging</string>
-
     <!-- Notification Contains trigger -->
     <string name="trigger_notification_contains_title">Notification Contains</string>
     <string name="trigger_notification_contains_description">Condition will be considered met when a specific word or phrase is found in the notification.</string>
     <string name="trigger_notification_contains_hint">Enter word or phrase</string>
     <string name="trigger_notification_contains_case_sensitive">Case-sensitive</string>
-
     <string name="rule_trigger_notification_contains">Notification contains "%1$s"</string>
     <string name="rule_trigger_notification_not_contains">Notification does not contain "%1$s"</string>
     <string name="rule_exception_notification_contains">Notification contains "%1$s"</string>
     <string name="rule_exception_notification_not_contains">Notification does not contain "%1$s"</string>
     <string name="rule_trigger_case_sensitive_suffix"> (case-sensitive)</string>
     <string name="rule_exception_case_sensitive_suffix"> (case-sensitive)</string>
-
     <string name="rule_error_invalid_notification_phrase">Notification phrase cannot be empty</string>
     <string name="rule_error_invalid_case_sensitive">Case-sensitive flag is invalid</string>
-
     <!-- Notification From trigger -->
     <string name="trigger_notification_from_title">الإشعار من</string>
     <string name="trigger_notification_from_description">يُعتبر الشرط محققًا عندما يكون الإشعار الوارد من تطبيق محدد.</string>
     <string name="trigger_notification_from_manage_apps">إدارة التطبيقات</string>
     <string name="trigger_notification_from_selected_count">المحدد: %1$d تطبيقات</string>
     <string name="trigger_notification_from_selected_count_default">المحدد: 0 تطبيقات</string>
-
     <string name="rule_trigger_notification_from_single">الإشعار من %1$s</string>
     <string name="rule_trigger_notification_from_multiple">الإشعار من أحد %1$d تطبيقات</string>
     <string name="rule_trigger_notification_from_not">%1$s (معكوس)</string>
     <string name="rule_exception_notification_from_single">الإشعار من %1$s</string>
     <string name="rule_exception_notification_from_multiple">الإشعار من أحد %1$d تطبيقات</string>
     <string name="rule_exception_notification_from_not">%1$s (معكوس)</string>
-
     <string name="rule_error_invalid_notification_from_apps">تحديد تطبيقات الإشعارات غير صالح</string>
-
     <!-- Foreground App trigger -->
     <string name="trigger_foreground_app_title">Foreground App</string>
     <string name="trigger_foreground_app_description">Condition is considered met when a specific app is actively being used.</string>
@@ -651,16 +578,13 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="trigger_foreground_app_selected_count">Selected: %1$d apps</string>
     <string name="trigger_foreground_app_selected_count_default">Selected: 0 apps</string>
     <string name="trigger_foreground_app_accessibility_required">Please go to General Settings and enable the Accessibility Permission</string>
-
     <string name="rule_trigger_foreground_app_single">Foreground app is %1$s</string>
     <string name="rule_trigger_foreground_app_multiple">Foreground app is one of %1$d apps</string>
     <string name="rule_trigger_foreground_app_not">%1$s (inverted)</string>
     <string name="rule_exception_foreground_app_single">Foreground app is %1$s</string>
     <string name="rule_exception_foreground_app_multiple">Foreground app is one of %1$d apps</string>
     <string name="rule_exception_foreground_app_not">%1$s (inverted)</string>
-
     <string name="rule_error_invalid_foreground_apps">Foreground app selection is invalid</string>
-
     <!-- Device Unlocked trigger -->
     <string name="trigger_device_unlocked_title">Device Unlocked</string>
     <string name="trigger_device_unlocked_description">Condition is considered met when the device is locked or unlocked.</string>
@@ -672,7 +596,6 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="rule_exception_device_unlocked">Device is unlocked</string>
     <string name="rule_exception_device_locked">Device is locked</string>
     <string name="rule_error_invalid_unlock_mode">Unlock mode must be locked or unlocked</string>
-
     <!-- Screen Orientation trigger -->
     <string name="trigger_screen_orientation_title">Screen Orientation</string>
     <string name="trigger_screen_orientation_description">Condition is considered met when your screen is either in portrait mode or landscape mode.</string>
@@ -737,4 +660,3 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="tidy_speech_remove_emojis_title">إزالة الرموز التعبيرية</string>
     <string name="tidy_speech_remove_emojis_description">إزالة الرموز التعبيرية والرموز الأخرى من الإشعارات المقروءة</string>
 </resources>
-

@@ -1,6 +1,6 @@
 <img width="1500" height="429" alt="SpeakThat! Header" src="https://github.com/user-attachments/assets/f7acb89c-9c81-406f-9e7f-dad3e01ffce0" />
 
-**SpeakThat!** is an Android app that reads your notifications aloud, helping you stay connected without constantly checking your phone. Whether you're driving, busy, visually impaired, or just want to reduce screen time, SpeakThat! makes your notifications accessible, hands-free, and private.
+SpeakThat (styled as “**_SpeakThat!_**”) is an open-source Android application that reads incoming notifications out loud using Android’s text-to-speech (TTS) engine. It was designed to continue the legacy of older notification reading applications, mainly Touchless Notifications developed by [DYNA Logix](https://dynalogix.eu/) in the mid-2010s. SpeakThat differs from other notification readers in its customization and user interface. Some notifications contain information that you would rather not be made public. SpeakThat allows you to control exactly what gets read out, and when. You can decide what apps get their notifications read out, set up words that prevent readouts, enable private mode for certain notifications, add cooldown periods to prevent spam, and just about anything else you could want. While plenty of notification readers feature adverts or in-app purchases, SpeakThat offers all of its features for free. No ads, no paying for extra readouts, and absolutely no subscriptions. SpeakThat is open-source under the GPL-3.0 license, giving you permission to use it, modify it, and share it provided any derivatives are under the same license and its original copyright holder is attributed.
 
 [![IzzyOnDroid](https://img.shields.io/badge/IzzyOnDroid-Available-green?logo=android)](https://apt.izzysoft.de/fdroid/index/apk/com.micoyc.speakthat)
 [<img src="https://img.shields.io/badge/SpeakThat!-Google_Play-blue?logo=googleplay" alt="RB shield">](https://play.google.com/store/apps/details?id=com.micoyc.speakthat)
@@ -8,6 +8,7 @@
 [<img src="https://shields.rbtlog.dev/simple/com.micoyc.speakthat" alt="RB shield">](https://shields.rbtlog.dev/com.micoyc.speakthat)
 [![Weblate](https://hosted.weblate.org/widgets/speakthat/-/svg-badge.svg)](https://speakthat.app/translate)
 [<img src="https://img.shields.io/badge/SpeakThat!-Official_Website-purple" alt="RB shield">](https://speakthat.app)
+
 
 ## The Journey to get here!
 
@@ -25,75 +26,133 @@ And so after a few failed versions, I'm pleased to introduce SpeakThat! The noti
 
 ## Features
 
-- **Privacy-first:**
-  - Nothing from your phone is sent to me or anyone else unless you submit a bug report or support request from within the app
-  - All processing happens on your device
-  - You control exactly what gets read
-- **App filtering:**
-  - Choose which apps get read and which will stay silent
-- **Word Filtering**
-  - Stop notifications containing certain words or phrases from ever being read, or substitute words with alternatives for SpeakThat to read
-- **Private Mode**
-  - When a notification is read in Private Mode, its app name will be read out loud but its notification content won't
-- **Shake to Stop:**
-  - Instantly silence SpeakThat! by shaking your device with an adjustable threshold
-- **Wave to Stop:**
-  - Instantly silence SpeakThat! by covering your device's proximity sensor
-- **Behaviour Settings**
-  - Add a delay before readout, 
-- **Smart onboarding:**
-  - Guided setup for privacy and permissions
-- **Accessible UI:**
-  - Makes use of the Material design system
-- **Customizable voice settings:**
-  - Change speech rate, pitch, and voice
-  - Supports external TTS engines
-  - Preview voice output
-- **No ads, no tracking, no nonsense**
-  - Open source for total transparency
-  - Free to download here on GitHub
+* **Privacy-First:**
+ - Nothing from your phone is sent to me or anyone else unless you explicitly submit a bug report from within the app.
+ - All processing happens locally on your device.
+ - You control exactly what gets read.
+
+
+* **Smart Rules & Automation:**
+ - Only read notifications when specific Bluetooth headphones are connected, when connected to your home WiFi, or when your screen is off.
+ - Set time schedules to silence readouts during certain hours.
+
+
+* **App & Word Filtering:**
+ - **App Filters:** Choose exactly which apps get read and which stay silent.
+ - **Word Filters:** Stop notifications containing certain words or phrases from being read, or substitute words with custom alternatives.
+
+
+* **Private Mode:**
+ - When a notification is flagged for Private Mode, its app name will be read out loud, but its potentially sensitive content won't be.
+
+
+* **Gesture Controls:**
+ - **Shake to Stop:** Instantly silence SpeakThat! by shaking your device (adjustable threshold).
+ - **Wave to Stop:** Instantly silence SpeakThat! by covering your device's proximity sensor.
+
+
+* **Behaviour Settings:**
+ - Add a delay before readout, enable cooldown prevention to avoid notification spam, and utilize media detection.
+
+
+* **Accessible & Customizable:**
+ - Guided setup for privacy and permissions via smart onboarding.
+ - Clean Material Design UI.
+ - Adjust speech rate, pitch, select preferred voices, and preview outputs. Supports external TTS engines.
+ - Export and import your configuration to easily switch devices without losing your settings.
+ - Built-in **SelfTest** diagnostic tool to troubleshoot common faults.
+
+
+* **No ads, no tracking, no nonsense:**
+Open-source for total transparency.
+Free to download here on GitHub (includes a built-in self-updater).
 
 ---
 
 ## Getting Started
 
-1. Download the APK and save it to your phone
-2. Tap the APK to install it (You may be prompted to grant install permissions if you haven't already)
-3. Android will scan the app to make sure it is safe, and it will be installed on your device
-4. Run the app and complete the setup
+1. Download the latest APK from the Releases tab and save it to your phone. *(Note: Different editions are available for F-Droid and Google Play depending on your preference).*
+2. Tap the APK to install it.
+3. Open SpeakThat! and follow the Smart Onboarding process.
+4. **Important Permission Step:** SpeakThat requires **Notification Access** to function.
 
 ---
 
 ## Privacy & Security
-- SpeakThat! never sends your notifications or data off your device
-- All processing is local and under your control
-- You can block or privatize any app at any time
 
----
+Notification readers are fundamentally a privacy risk because they take information on your phone and speak it loudly to anybody nearby. SpeakThat! was built to solve this:
 
-## Customization
-- **App Filters:** Block, allow, or privatize notifications from any app
-- **Voice Settings:** Adjust speech rate, pitch, and select your preferred voice
-
-- **Re-run Onboarding:** Accessible from settings if you want to revisit setup
+* Your notifications and data **never** leave your device. All text-to-speech processing is entirely local.
+* SpeakThat! features a built-in event logging system to help diagnose bugs. Up to 500 log entries are saved purely on your local device.
+* If you submit a bug report, you can review and redact any diagnostic data or logs before sending the email.
 
 ---
 
 ## Feedback & Support
-- Found a bug? Have a feature request? [Open an issue](https://github.com/mitchib1440/SpeakThat/issues)
-- For support, use the in-app "Support & Feedback" option or email the developer
+
+* Found a bug? Have a feature request? [Open an issue](https://github.com/mitchib1440/SpeakThat/issues).
+* For support, use the in-app **"Support & Feedback"** option. This will automatically draft an email with helpful diagnostic data (which you can review/redact) so I can better assist you.
+* **Please Note:** SpeakThat! is entirely free, and support is provided voluntarily. Please ensure all interactions remain respectful and constructive!
 
 ---
 
-## License
-This project is licensed under the GPL-3.0 License. You are permitted to use, share, modify, and redistribute provided any derivatives are under the same license as the original work. See [LICENSE](https://github.com/mitchib1440/SpeakThat/blob/main/LICENSE) for details.
+## SpeakThat! & AI Usage
+
+As the world heavily pivots towards artificial intelligence, I believe transparency with how work was created is more important than ever before.
+
+SpeakThat’s code heavily makes use of AI-assisted programming. While I do my best to vet code used in the project and of course test new versions of the app on both my own devices as well as emulated devices before any of it goes public, there always exists the possibility for errors and faults to slip through into release. As you should expect, I take full responsibility for these mistakes and ask for your understanding as I work through them. I encourage the ethical use of AI, and any code contributions made using AI must be reviewed by a competent human with some understanding of the programming language.
+
+I should state, however, that absolutely zero graphical work used by/for SpeakThat was generated by artificial intelligence. All visuals (Including logos, banners, and header images) are my own work, created using manual tools in Figma.
+
+SpeakThat's external documentation was also written by myself, using LibreOffice Writer. That said, I have used artificial intelligence to refine my wording in some areas for better clarity (and because I’m not all that great with technical explanations).
+
+I greatly value the human experience of creation and thus only use AI as assistive tool, making sure my usage is both ethical and transparent.
+
+---
+
+## Legalities
+
+SpeakThat! is free and open-source software, released under the GNU GPL v3.0, a copyleft license that ensures modified and redistributed versions remain free and properly attributed.
+
+This license allows you to download, modify, and redistribute SpeakThat, provided that any redistributed or modified versions remain under the same license and retain the original copyright notices.
+
+- SpeakThat! Copyright © Mitchell Bell
+- SPEAKTHAT is a registered trademark of Mitchell Bell 
 
 ---
 
 ## Acknowledgements
-- Thanks to the Android and Material Design teams
-- Special thanks to everyone who provided feedback and testing
+
+As I mentioned in the overview, SpeakThat was mostly inspired by Touchless Notifications by [DYNA Logix](https://dynalogix.eu/). Without his original app, I may have never fallen in love with notification readers and SpeakThat would simply not exist. Thank you ever so much for creating something truly ahead of its time. And I’m sorry it received such unfair punishment from Google!
+
+SpeakThat uses many icons from the [Material Icons](https://fonts.google.com/icons) library. These are available under the Apache 2.0 license, and make SpeakThat look much more professional than it has any right to be! So a huge thank you to the Material design teams.
+
+I should also thank the people making improvements in AI-assisted programming. SpeakThat simply couldn’t exist in its current form without this technology. I’ve personally been using [Cursor](https://cursor.com/) for my use. It's far from flawless and we've nearly fallen out several times, but they have improved their software massively since I started using it.
+
+Thanks also to the [Android](https://www.android.com/) development teams for making an operating system capable of working for everyone. Your work is greatly underappreciated!
+
+Special thanks to my Mum, who supported the project from the very beginning and was willing to help me test it by trialling it on her phone! Thanks, Rusty!
+
+I’d also like to thank my work colleagues, especially Connagh, who convinced me to try AI-assisted programming as I was very hesitant at first!
+
+As this is the first time I had ever attempted anything like this, I ended up checking some of my basic notification reading and audio processing code to that of [Voice Notify](https://voicenotify.app/), created by [Pilot51](https://github.com/pilot51). I didn’t take any code directly, but since a lot of users were telling me certain things were working with Voice Notify but not with SpeakThat, its publicly-accessible code was incredibly helpful in making sure I wasn’t taking the wrong path. So massive thanks to Pilot51.
+
+Thanks to [HowToMen](https://www.youtube.com/@howtomen) for [featuring SpeakThat](https://youtu.be/iwvHk4SUrMQ?si=DVL6sAUJEvglgTdu&t=222) on his YouTube channel!
+
+And of course, thank you to all of the contributors, of which there are far too many to list at this point. But whether you contributed translations, code, donations, or even just constructive criticism, thank you so much. You shaped SpeakThat into something that truly helps people.
 
 ---
 
 **Enjoy using SpeakThat! Stay safe, stay connected, and let your phone do the talking!**
+
+---
+
+## Star History
+
+<a href="https://www.star-history.com/#mitchib1440/speakthat&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=mitchib1440/speakthat&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=mitchib1440/speakthat&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=mitchib1440/speakthat&type=date&legend=top-left" />
+ </picture>
+</a>

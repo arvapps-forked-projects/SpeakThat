@@ -3911,10 +3911,14 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             
             // Ensure that the TTS volume is maintained by checking if we need to re-request audio focus
             // This helps prevent the system from ducking our TTS when the app goes to background
-            if (audioFocusRequest == null) {
+            // BUGFIX: Don't request audio focus if media behavior is set to "ignore"
+            if (audioFocusRequest == null && mediaBehavior != "ignore") {
                 Log.d(TAG, "No audio focus request active - requesting new focus to maintain TTS volume")
                 InAppLogger.log("MediaBehavior", "Requesting new audio focus to maintain TTS volume")
                 requestSpeechAudioFocus(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            } else if (audioFocusRequest == null && mediaBehavior == "ignore") {
+                Log.d(TAG, "Skipping audio focus request - media behavior is set to ignore")
+                InAppLogger.log("MediaBehavior", "Skipping audio focus (media behavior: ignore)")
             }
             
             // Additional safety measure: ensure that the TTS volume is not being reduced by the system
@@ -3946,10 +3950,13 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 
                 // Also ensure that our audio focus request is still valid
                 // This helps prevent the system from ducking our TTS
-                if (audioFocusRequest == null) {
+                // BUGFIX: Don't request audio focus if media behavior is set to "ignore"
+                if (audioFocusRequest == null && mediaBehavior != "ignore") {
                     Log.d(TAG, "Audio focus request lost during TTS - requesting new focus")
                     InAppLogger.log("MediaBehavior", "Audio focus request lost during TTS - requesting new focus")
                     requestSpeechAudioFocus(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                } else if (audioFocusRequest == null && mediaBehavior == "ignore") {
+                    Log.d(TAG, "Skipping audio focus request during TTS - media behavior is set to ignore")
                 }
                 
                 // Schedule the next check
@@ -3979,10 +3986,14 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             
             // Request a new audio focus if needed to ensure TTS volume is maintained
             // This helps prevent the system from ducking our TTS when the app goes to background
-            if (audioFocusRequest == null) {
+            // BUGFIX: Don't request audio focus if media behavior is set to "ignore"
+            if (audioFocusRequest == null && mediaBehavior != "ignore") {
                 Log.d(TAG, "No audio focus request active - requesting new focus to maintain TTS volume")
                 InAppLogger.log("MediaBehavior", "Requesting new audio focus to maintain TTS volume")
                 requestSpeechAudioFocus(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            } else if (audioFocusRequest == null && mediaBehavior == "ignore") {
+                Log.d(TAG, "Skipping audio focus request on app background - media behavior is set to ignore")
+                InAppLogger.log("MediaBehavior", "Skipping audio focus on app background (media behavior: ignore)")
             }
         }
     }
@@ -5875,14 +5886,25 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         val rawInfoText = sbn?.notification?.extras?.getCharSequence(Notification.EXTRA_INFO_TEXT)?.toString() ?: ""
         val rawTickerText = sbn?.notification?.tickerText?.toString() ?: ""
         
+        // Apply URL handling to all notification text fields so URLs are processed
+        // regardless of which template placeholders the user chooses to use.
+        // Note: {content} (the 'text' param) is already URL-processed by applyWordFiltering(),
+        // but these fields are extracted fresh from the notification extras.
+        val urlProcessedTitle = if (rawTitle.isNotEmpty()) applyUrlHandling(rawTitle) else rawTitle
+        val urlProcessedNotificationText = if (rawNotificationText.isNotEmpty()) applyUrlHandling(rawNotificationText) else rawNotificationText
+        val urlProcessedBigText = if (rawBigText.isNotEmpty()) applyUrlHandling(rawBigText) else rawBigText
+        val urlProcessedSummaryText = if (rawSummaryText.isNotEmpty()) applyUrlHandling(rawSummaryText) else rawSummaryText
+        val urlProcessedInfoText = if (rawInfoText.isNotEmpty()) applyUrlHandling(rawInfoText) else rawInfoText
+        val urlProcessedTickerText = if (rawTickerText.isNotEmpty()) applyUrlHandling(rawTickerText) else rawTickerText
+        
         // Apply Content Cap to all notification text fields to ensure consistent behavior
         // This ensures Content Cap works regardless of which template placeholders are used
-        val title = if (contentCapMode != "disabled" && rawTitle.isNotEmpty()) applyContentCap(rawTitle) else rawTitle
-        val notificationText = if (contentCapMode != "disabled" && rawNotificationText.isNotEmpty()) applyContentCap(rawNotificationText) else rawNotificationText
-        val bigText = if (contentCapMode != "disabled" && rawBigText.isNotEmpty()) applyContentCap(rawBigText) else rawBigText
-        val summaryText = if (contentCapMode != "disabled" && rawSummaryText.isNotEmpty()) applyContentCap(rawSummaryText) else rawSummaryText
-        val infoText = if (contentCapMode != "disabled" && rawInfoText.isNotEmpty()) applyContentCap(rawInfoText) else rawInfoText
-        val tickerText = if (contentCapMode != "disabled" && rawTickerText.isNotEmpty()) applyContentCap(rawTickerText) else rawTickerText
+        val title = if (contentCapMode != "disabled" && urlProcessedTitle.isNotEmpty()) applyContentCap(urlProcessedTitle) else urlProcessedTitle
+        val notificationText = if (contentCapMode != "disabled" && urlProcessedNotificationText.isNotEmpty()) applyContentCap(urlProcessedNotificationText) else urlProcessedNotificationText
+        val bigText = if (contentCapMode != "disabled" && urlProcessedBigText.isNotEmpty()) applyContentCap(urlProcessedBigText) else urlProcessedBigText
+        val summaryText = if (contentCapMode != "disabled" && urlProcessedSummaryText.isNotEmpty()) applyContentCap(urlProcessedSummaryText) else urlProcessedSummaryText
+        val infoText = if (contentCapMode != "disabled" && urlProcessedInfoText.isNotEmpty()) applyContentCap(urlProcessedInfoText) else urlProcessedInfoText
+        val tickerText = if (contentCapMode != "disabled" && urlProcessedTickerText.isNotEmpty()) applyContentCap(urlProcessedTickerText) else urlProcessedTickerText
         
         // Get current time and date
         val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())

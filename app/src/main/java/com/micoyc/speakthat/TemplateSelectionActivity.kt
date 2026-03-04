@@ -26,6 +26,7 @@ import com.micoyc.speakthat.rules.RuleManager
 import com.micoyc.speakthat.rules.RuleTemplate
 import com.micoyc.speakthat.rules.RuleTemplates
 import com.micoyc.speakthat.rules.TriggerType
+import com.micoyc.speakthat.utils.BackgroundLocationHelper
 import com.micoyc.speakthat.utils.WifiCapabilityChecker
 
 class TemplateSelectionActivity : AppCompatActivity() {
@@ -35,11 +36,13 @@ class TemplateSelectionActivity : AppCompatActivity() {
     private lateinit var ruleManager: RuleManager
     private lateinit var adapter: TemplateAdapter
     private var pendingWifiTemplate: RuleTemplate? = null
+    private var awaitingBackgroundLocation = false
     
     companion object {
         private const val PREFS_NAME = "SpeakThatPrefs"
         private const val KEY_DARK_MODE = "dark_mode"
         private const val REQUEST_WIFI_PERMISSIONS = 1002
+        private const val REQUEST_BG_LOCATION = 1003
     }
     
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -232,8 +235,35 @@ class TemplateSelectionActivity : AppCompatActivity() {
             }
             
             val availableNetworks = mutableListOf<String>()
+            var currentSsid: String? = null
 
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            // Get the currently connected WiFi SSID (most reliable on Android 10+)
+            try {
+                val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+                val activeNetwork = connectivityManager.activeNetwork
+                val capabilities = activeNetwork?.let { connectivityManager.getNetworkCapabilities(it) }
+                if (capabilities?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true) {
+                    val wifiInfo = capabilities.transportInfo as? android.net.wifi.WifiInfo
+                    val ssid = wifiInfo?.ssid?.removeSurrounding("\"")
+                    if (ssid == null || ssid.isBlank() || ssid.equals("<unknown ssid>", ignoreCase = true)) {
+                        @Suppress("DEPRECATION")
+                        val fallbackSsid = wifiManager.connectionInfo?.ssid?.removeSurrounding("\"")
+                        if (!fallbackSsid.isNullOrBlank() && !fallbackSsid.equals("<unknown ssid>", ignoreCase = true)) {
+                            currentSsid = fallbackSsid
+                        }
+                    } else {
+                        currentSsid = ssid
+                    }
+                }
+            } catch (e: SecurityException) {
+                InAppLogger.logDebug("TemplateSelectionActivity", "Cannot get current WiFi SSID: ${e.message}")
+            }
+
+            if (currentSsid != null) {
+                availableNetworks.add(currentSsid)
+            }
+
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
                 @Suppress("DEPRECATION")
                 val configuredNetworks = wifiManager.configuredNetworks
                 if (configuredNetworks != null) {
@@ -244,19 +274,17 @@ class TemplateSelectionActivity : AppCompatActivity() {
                 }
             }
 
-            if (availableNetworks.isEmpty()) {
-                try {
-                    val scanResults = wifiManager.scanResults
-                    if (scanResults.isNotEmpty()) {
-                        availableNetworks.addAll(scanResults.map { result ->
-                            @Suppress("DEPRECATION")
-                            val ssid = result.SSID
-                            ssid.removeSurrounding("\"")
-                        }.distinct())
-                    }
-                } catch (e: SecurityException) {
-                    InAppLogger.logDebug("TemplateSelectionActivity", "Cannot access scan results: ${e.message}")
+            try {
+                val scanResults = wifiManager.scanResults
+                if (scanResults.isNotEmpty()) {
+                    availableNetworks.addAll(scanResults.map { result ->
+                        @Suppress("DEPRECATION")
+                        val ssid = result.SSID
+                        ssid.removeSurrounding("\"")
+                    })
                 }
+            } catch (e: SecurityException) {
+                InAppLogger.logDebug("TemplateSelectionActivity", "Cannot access scan results: ${e.message}")
             }
 
             val uniqueNetworks = availableNetworks.filter { it.isNotBlank() }.distinct().sorted()
@@ -268,18 +296,18 @@ class TemplateSelectionActivity : AppCompatActivity() {
                     return
                 }
 
-                // Fallback to manual input if no networks detected
                 showManualWifiInputDialog(template)
                 return
             }
             
-            // Create network selection dialog
             val networkNames = uniqueNetworks.toTypedArray()
+            val displayNames = networkNames.map { ssid ->
+                if (ssid == currentSsid) "$ssid (current)" else ssid
+            }.toTypedArray()
             
             AlertDialog.Builder(this)
                 .setTitle("Select WiFi Network")
-                .setMessage("Choose the WiFi network for this rule:")
-                .setItems(networkNames) { _, which ->
+                .setItems(displayNames) { _, which ->
                     val networkSsid = networkNames[which]
                     createRuleFromTemplate(template, mapOf(
                         "ssid" to networkSsid,
@@ -459,24 +487,29 @@ class TemplateSelectionActivity : AppCompatActivity() {
     }
     
     private fun hasWifiPermissions(): Boolean {
-        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            checkSelfPermission(android.Manifest.permission.NEARBY_WIFI_DEVICES) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
-            checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        } else {
-            checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        }
+        return BackgroundLocationHelper.hasAllWifiPermissions(this)
     }
 
     private fun requestWifiPermissions() {
-        val permissions = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(
-                android.Manifest.permission.NEARBY_WIFI_DEVICES,
-                android.Manifest.permission.ACCESS_FINE_LOCATION
-            )
-        } else {
-            arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
+        if (!BackgroundLocationHelper.hasForegroundLocationPermission(this) ||
+            !BackgroundLocationHelper.hasNearbyWifiPermission(this)) {
+            requestPermissions(BackgroundLocationHelper.getForegroundWifiPermissions(), REQUEST_WIFI_PERMISSIONS)
+            return
         }
-        requestPermissions(permissions, REQUEST_WIFI_PERMISSIONS)
+        requestBackgroundLocationForWifi()
+    }
+
+    private fun requestBackgroundLocationForWifi() {
+        BackgroundLocationHelper.showBackgroundLocationDisclosure(this,
+            onAccepted = {
+                awaitingBackgroundLocation = true
+                BackgroundLocationHelper.requestBackgroundLocation(this, REQUEST_BG_LOCATION)
+            },
+            onDeclined = {
+                pendingWifiTemplate = null
+                InAppLogger.logFilter("Background location disclosure declined in TemplateSelection.")
+            }
+        )
     }
 
     private fun checkBluetoothPermissions(): Boolean {
@@ -499,6 +532,24 @@ class TemplateSelectionActivity : AppCompatActivity() {
             .show()
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (awaitingBackgroundLocation) {
+            awaitingBackgroundLocation = false
+            if (BackgroundLocationHelper.hasBackgroundLocationPermission(this)) {
+                pendingWifiTemplate?.let { handleWifiNetworkSelection(it) }
+                pendingWifiTemplate = null
+            } else {
+                AlertDialog.Builder(this)
+                    .setTitle(getString(R.string.background_location_denied_title))
+                    .setMessage(getString(R.string.background_location_denied_message))
+                    .setPositiveButton(getString(R.string.ok), null)
+                    .show()
+                pendingWifiTemplate = null
+            }
+        }
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
@@ -506,14 +557,36 @@ class TemplateSelectionActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
-        if (requestCode == REQUEST_WIFI_PERMISSIONS) {
-            val allGranted = grantResults.isNotEmpty() && grantResults.all { it == android.content.pm.PackageManager.PERMISSION_GRANTED }
-            if (allGranted) {
-                pendingWifiTemplate?.let { handleWifiNetworkSelection(it) }
-            } else {
-                showErrorDialog("WiFi permissions are required to select networks.")
+        when (requestCode) {
+            REQUEST_WIFI_PERMISSIONS -> {
+                val foregroundGranted = BackgroundLocationHelper.hasForegroundLocationPermission(this) &&
+                    BackgroundLocationHelper.hasNearbyWifiPermission(this)
+                if (foregroundGranted) {
+                    if (BackgroundLocationHelper.hasBackgroundLocationPermission(this)) {
+                        pendingWifiTemplate?.let { handleWifiNetworkSelection(it) }
+                        pendingWifiTemplate = null
+                    } else {
+                        requestBackgroundLocationForWifi()
+                    }
+                } else {
+                    showErrorDialog("WiFi permissions are required to select networks.")
+                    pendingWifiTemplate = null
+                }
             }
-            pendingWifiTemplate = null
+            REQUEST_BG_LOCATION -> {
+                awaitingBackgroundLocation = false
+                if (BackgroundLocationHelper.hasBackgroundLocationPermission(this)) {
+                    pendingWifiTemplate?.let { handleWifiNetworkSelection(it) }
+                    pendingWifiTemplate = null
+                } else {
+                    AlertDialog.Builder(this)
+                        .setTitle(getString(R.string.background_location_denied_title))
+                        .setMessage(getString(R.string.background_location_denied_message))
+                        .setPositiveButton(getString(R.string.ok), null)
+                        .show()
+                    pendingWifiTemplate = null
+                }
+            }
         }
     }
     

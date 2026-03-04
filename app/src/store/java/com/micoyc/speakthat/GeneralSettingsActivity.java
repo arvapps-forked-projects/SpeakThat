@@ -62,8 +62,11 @@ public class GeneralSettingsActivity extends AppCompatActivity {
         binding = ActivityGeneralSettingsBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        // Set the activity title
-        getSupportActionBar().setTitle(getString(R.string.title_general_settings));
+        // Set title and enable back navigation in app bar
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setTitle(getString(R.string.title_general_settings));
+            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+        }
 
         // Initialize activity result launchers
         initializeActivityResultLaunchers();
@@ -681,21 +684,24 @@ public class GeneralSettingsActivity extends AppCompatActivity {
     }
 
     private boolean hasWifiPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            return checkSelfPermission(android.Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED &&
-                checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
-        }
-        return checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        return com.micoyc.speakthat.utils.BackgroundLocationHelper.INSTANCE.hasAllWifiPermissions(this);
     }
 
     private List<String> getWifiPermissions() {
         List<String> permissions = new ArrayList<>();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(android.Manifest.permission.NEARBY_WIFI_DEVICES);
-            permissions.add(android.Manifest.permission.ACCESS_FINE_LOCATION);
-        } else {
-            permissions.add(android.Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        permissions.add(android.Manifest.permission.ACCESS_FINE_LOCATION);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            permissions.add(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION);
         }
         return permissions;
+    }
+
+    @Override
+    public boolean onSupportNavigateUp() {
+        finish();
+        return true;
     }
 } 

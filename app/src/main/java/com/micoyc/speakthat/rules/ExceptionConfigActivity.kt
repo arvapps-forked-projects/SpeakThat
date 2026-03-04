@@ -17,6 +17,7 @@ import com.micoyc.speakthat.AppPickerActivity
 import com.micoyc.speakthat.InAppLogger
 import com.micoyc.speakthat.R
 import com.micoyc.speakthat.databinding.ActivityExceptionConfigBinding
+import com.micoyc.speakthat.utils.BackgroundLocationHelper
 import com.micoyc.speakthat.utils.WifiCapabilityChecker
 import com.google.gson.Gson
 import java.util.*
@@ -36,6 +37,7 @@ class ExceptionConfigActivity : AppCompatActivity() {
     private lateinit var foregroundAppPickerLauncher: ActivityResultLauncher<Intent>
     private val selectedNotificationFromApps = mutableListOf<String>()
     private lateinit var notificationFromPickerLauncher: ActivityResultLauncher<Intent>
+    private var awaitingBackgroundLocation = false
 
     companion object {
         const val EXTRA_EXCEPTION_TYPE = "exception_type"
@@ -44,6 +46,7 @@ class ExceptionConfigActivity : AppCompatActivity() {
         const val RESULT_EXCEPTION = "result_exception"
         private const val REQUEST_BLUETOOTH_PERMISSIONS = 2001
         private const val REQUEST_WIFI_PERMISSIONS = 2002
+        private const val REQUEST_BG_LOCATION = 2003
         private const val PREFS_NAME = "SpeakThatPrefs"
         private const val KEY_DARK_MODE = "dark_mode"
     }
@@ -536,11 +539,37 @@ class ExceptionConfigActivity : AppCompatActivity() {
                 return
             }
             
-            // Try to get available networks using different approaches
             val availableNetworks = mutableListOf<String>()
+            var currentSsid: String? = null
             
-            // Method 1: Try to get configured networks (works on older Android versions)
-            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
+            // Method 1: Get the currently connected WiFi SSID (most reliable on Android 10+)
+            try {
+                val connectivityManager = applicationContext.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+                val activeNetwork = connectivityManager.activeNetwork
+                val capabilities = activeNetwork?.let { connectivityManager.getNetworkCapabilities(it) }
+                if (capabilities?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true) {
+                    val wifiInfo = capabilities.transportInfo as? android.net.wifi.WifiInfo
+                    val ssid = wifiInfo?.ssid?.removeSurrounding("\"")
+                    if (ssid == null || ssid.isBlank() || ssid.equals("<unknown ssid>", ignoreCase = true)) {
+                        @Suppress("DEPRECATION")
+                        val fallbackSsid = wifiManager.connectionInfo?.ssid?.removeSurrounding("\"")
+                        if (!fallbackSsid.isNullOrBlank() && !fallbackSsid.equals("<unknown ssid>", ignoreCase = true)) {
+                            currentSsid = fallbackSsid
+                        }
+                    } else {
+                        currentSsid = ssid
+                    }
+                }
+                if (currentSsid != null) {
+                    availableNetworks.add(currentSsid)
+                    InAppLogger.log("ExceptionConfig", "Current WiFi SSID: $currentSsid")
+                }
+            } catch (e: SecurityException) {
+                InAppLogger.logDebug("ExceptionConfigActivity", "Cannot get current WiFi SSID: ${e.message}")
+            }
+            
+            // Method 2: Try to get configured networks (works on older Android versions)
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) {
                 @Suppress("DEPRECATION")
                 val configuredNetworks = wifiManager.configuredNetworks
                 if (configuredNetworks != null) {
@@ -551,23 +580,21 @@ class ExceptionConfigActivity : AppCompatActivity() {
                 }
             }
             
-            // Method 2: Try to get scan results (requires location permission on newer versions)
-            if (availableNetworks.isEmpty()) {
-                try {
-                    val scanResults = wifiManager.scanResults
-                    if (scanResults.isNotEmpty()) {
-                        availableNetworks.addAll(scanResults.map { result ->
-                            @Suppress("DEPRECATION")
-                            val ssid = result.SSID
-                            ssid.removeSurrounding("\"")
-                        }.distinct())
-                    }
-                } catch (e: SecurityException) {
-                    InAppLogger.logDebug("ExceptionConfigActivity", "Cannot access scan results: ${e.message}")
+            // Method 3: Try to get scan results (requires location permission on newer versions)
+            try {
+                val scanResults = wifiManager.scanResults
+                if (scanResults.isNotEmpty()) {
+                    availableNetworks.addAll(scanResults.map { result ->
+                        @Suppress("DEPRECATION")
+                        val ssid = result.SSID
+                        ssid.removeSurrounding("\"")
+                    })
                 }
+            } catch (e: SecurityException) {
+                InAppLogger.logDebug("ExceptionConfigActivity", "Cannot access scan results: ${e.message}")
             }
             
-            // Method 3: If still no networks, show manual entry dialog
+            // Method 4: If still no networks, show manual entry dialog
             if (availableNetworks.isEmpty()) {
                 AlertDialog.Builder(this)
                     .setTitle("WiFi Networks")
@@ -579,7 +606,6 @@ class ExceptionConfigActivity : AppCompatActivity() {
                 return
             }
             
-            // Remove duplicates and empty entries
             val uniqueNetworks = availableNetworks.filter { it.isNotEmpty() }.distinct().sorted()
             
             if (uniqueNetworks.isEmpty()) {
@@ -591,14 +617,16 @@ class ExceptionConfigActivity : AppCompatActivity() {
                 return
             }
             
-            // Create network list with SSIDs
             val networkItems = uniqueNetworks.toTypedArray()
+            val displayItems = networkItems.map { ssid ->
+                if (ssid == currentSsid) "$ssid (current)" else ssid
+            }.toTypedArray()
             
             val selectedIndices = mutableSetOf<Int>()
             
             AlertDialog.Builder(this)
                 .setTitle("Select WiFi Networks")
-                .setMultiChoiceItems(networkItems, null) { _, which, isChecked ->
+                .setMultiChoiceItems(displayItems, null) { _, which, isChecked ->
                     if (isChecked) {
                         selectedIndices.add(which)
                     } else {
@@ -1430,12 +1458,7 @@ class ExceptionConfigActivity : AppCompatActivity() {
     }
     
     private fun checkWifiPermissions(): Boolean {
-        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            checkSelfPermission(android.Manifest.permission.NEARBY_WIFI_DEVICES) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
-            checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        } else {
-            checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        }
+        return BackgroundLocationHelper.hasAllWifiPermissions(this)
     }
     
     private fun requestBluetoothPermissions() {
@@ -1455,18 +1478,42 @@ class ExceptionConfigActivity : AppCompatActivity() {
     }
     
     private fun requestWifiPermissions() {
-        val permissions = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(
-                android.Manifest.permission.NEARBY_WIFI_DEVICES,
-                android.Manifest.permission.ACCESS_FINE_LOCATION
-            )
-        } else {
-            arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
+        if (!BackgroundLocationHelper.hasForegroundLocationPermission(this) ||
+            !BackgroundLocationHelper.hasNearbyWifiPermission(this)) {
+            requestPermissions(BackgroundLocationHelper.getForegroundWifiPermissions(), REQUEST_WIFI_PERMISSIONS)
+            return
         }
-        
-        requestPermissions(permissions, REQUEST_WIFI_PERMISSIONS)
+        requestBackgroundLocationForWifi()
     }
-    
+
+    private fun requestBackgroundLocationForWifi() {
+        BackgroundLocationHelper.showBackgroundLocationDisclosure(this,
+            onAccepted = {
+                awaitingBackgroundLocation = true
+                BackgroundLocationHelper.requestBackgroundLocation(this, REQUEST_BG_LOCATION)
+            },
+            onDeclined = {
+                InAppLogger.logFilter("Background location disclosure declined in ExceptionConfig.")
+            }
+        )
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (awaitingBackgroundLocation) {
+            awaitingBackgroundLocation = false
+            if (BackgroundLocationHelper.hasBackgroundLocationPermission(this)) {
+                showWifiNetworkSelection()
+            } else {
+                AlertDialog.Builder(this)
+                    .setTitle(getString(R.string.background_location_denied_title))
+                    .setMessage(getString(R.string.background_location_denied_message))
+                    .setPositiveButton(getString(R.string.ok), null)
+                    .show()
+            }
+        }
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
@@ -1488,14 +1535,33 @@ class ExceptionConfigActivity : AppCompatActivity() {
                 }
             }
             REQUEST_WIFI_PERMISSIONS -> {
-                if (grantResults.isNotEmpty() && grantResults.all { it == android.content.pm.PackageManager.PERMISSION_GRANTED }) {
-                    InAppLogger.logDebug("ExceptionConfigActivity", "WiFi permissions granted")
-                    showWifiNetworkSelection()
+                val foregroundGranted = BackgroundLocationHelper.hasForegroundLocationPermission(this) &&
+                    BackgroundLocationHelper.hasNearbyWifiPermission(this)
+                if (foregroundGranted) {
+                    if (BackgroundLocationHelper.hasBackgroundLocationPermission(this)) {
+                        InAppLogger.logDebug("ExceptionConfigActivity", "All WiFi permissions granted")
+                        showWifiNetworkSelection()
+                    } else {
+                        requestBackgroundLocationForWifi()
+                    }
                 } else {
                     AlertDialog.Builder(this)
                         .setTitle("Permission Required")
                         .setMessage("WiFi permissions are required to select networks.")
                         .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
+            REQUEST_BG_LOCATION -> {
+                awaitingBackgroundLocation = false
+                if (BackgroundLocationHelper.hasBackgroundLocationPermission(this)) {
+                    InAppLogger.logDebug("ExceptionConfigActivity", "Background location granted")
+                    showWifiNetworkSelection()
+                } else {
+                    AlertDialog.Builder(this)
+                        .setTitle(getString(R.string.background_location_denied_title))
+                        .setMessage(getString(R.string.background_location_denied_message))
+                        .setPositiveButton(getString(R.string.ok), null)
                         .show()
                 }
             }

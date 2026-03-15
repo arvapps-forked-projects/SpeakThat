@@ -44,6 +44,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     private var textToSpeech: TextToSpeech? = null
     private var isTtsInitialized = false
     private var isCurrentlySpeaking = false
+    private var isTemporaryVoiceOverrideActive = false
     private var currentSpeechText = ""
     private var currentAppName = ""
     private var currentOriginalAppName = "" // Store original app name for statistics (before privacy modification)
@@ -316,6 +317,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         
         // Cooldown settings
         private const val KEY_COOLDOWN_APPS = "cooldown_apps"
+        private const val KEY_COOLDOWN_TIMESTAMPS = "cooldown_timestamps"
         
         // URL handling constants
         private const val KEY_URL_HANDLING_MODE = "url_handling_mode"
@@ -376,7 +378,10 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         val packageName: String,
         val title: String,
         val text: String,
-        val timestamp: String
+        val timestamp: String,
+        val wasRead: Boolean = true,
+        val spokenText: String? = null,
+        val blockedReason: String? = null
     )
     
     data class QueuedNotification(
@@ -386,7 +391,8 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         val conditionalDelaySeconds: Int = -1,
         val sbn: StatusBarNotification? = null,
         val originalAppName: String? = null, // Original app name for statistics (before privacy modification)
-        val speechTemplateOverride: SpeechTemplateOverride? = null
+        val speechTemplateOverride: SpeechTemplateOverride? = null,
+        val voiceOverride: VoiceOverride? = null
     )
     
     override fun onCreate() {
@@ -488,7 +494,8 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             
             // Register broadcast receiver for accessibility service
             registerAccessibilityBroadcastReceiver()
-            
+            registerTestFiltersBroadcastReceiver()
+
         } catch (e: Exception) {
             Log.e(TAG, "Critical error during service initialization", e)
             InAppLogger.logError("Service", "Critical initialization error: " + e.message)
@@ -516,6 +523,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 textToSpeech?.stop()
                 isCurrentlySpeaking = false
             }
+            restoreGlobalVoiceSettingsIfNeeded("service destroy")
             
             // Clean up enhanced ducking if active
             cleanupMediaBehavior()
@@ -549,9 +557,10 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             // Unregister voice settings listener
             voiceSettingsPrefs?.unregisterOnSharedPreferenceChangeListener(voiceSettingsListener)
             
-            // Unregister accessibility broadcast receiver
+            // Unregister broadcast receivers
             unregisterAccessibilityBroadcastReceiver()
-            
+            unregisterTestFiltersBroadcastReceiver()
+
             // Clear deduplication caches
             recentNotificationKeys.clear()
             groupChildDeduplicationMap.clear()
@@ -619,7 +628,30 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             Log.e(TAG, "Error unregistering accessibility broadcast receiver", e)
         }
     }
-    
+
+    private fun registerTestFiltersBroadcastReceiver() {
+        try {
+            val filter = android.content.IntentFilter("com.micoyc.speakthat.action.TEST_FILTERS")
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(testFiltersBroadcastReceiver, filter, android.content.Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(testFiltersBroadcastReceiver, filter)
+            }
+            Log.d(TAG, "Test filters broadcast receiver registered")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error registering test filters broadcast receiver", e)
+        }
+    }
+
+    private fun unregisterTestFiltersBroadcastReceiver() {
+        try {
+            unregisterReceiver(testFiltersBroadcastReceiver)
+            Log.d(TAG, "Test filters broadcast receiver unregistered")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error unregistering test filters broadcast receiver", e)
+        }
+    }
+
     /**
      * Broadcast receiver for accessibility service communication
      * 
@@ -644,7 +676,30 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             }
         }
     }
-    
+
+    private val testFiltersBroadcastReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            if (intent?.action != "com.micoyc.speakthat.action.TEST_FILTERS") return
+            val packageName = intent.getStringExtra("extra_package_name") ?: return
+            val appName = intent.getStringExtra("extra_app_name") ?: return
+            val text = intent.getStringExtra("extra_text") ?: return
+
+            Log.d(TAG, "TEST_FILTERS broadcast received for $appName ($packageName)")
+            val filterResult = applyFilters(packageName, appName, text, sbn = null, isSelfTest = true)
+            if (filterResult.shouldSpeak) {
+                speakNotificationImmediate(
+                    appName, filterResult.processedText,
+                    conditionalDelaySeconds = -1,
+                    sbn = null,
+                    speechTemplateOverride = filterResult.speechTemplateOverride,
+                    voiceOverride = filterResult.voiceOverride
+                )
+            } else {
+                Log.d(TAG, "TEST_FILTERS: notification blocked by filters - ${filterResult.reason}")
+            }
+        }
+    }
+
     override fun onListenerConnected() {
         super.onListenerConnected()
         Log.d(TAG, "NotificationListener connected")
@@ -721,6 +776,23 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                         StatisticsManager.getInstance(this).incrementFilterReason(StatisticsManager.FILTER_GROUP_SUMMARY)
                     } catch (e: Exception) {
                         Log.e(TAG, "Error tracking group summary filter", e)
+                    }
+                    val showSystemBlocks = sharedPreferences?.getBoolean("show_system_blocks_history", false) ?: false
+                    if (showSystemBlocks) {
+                        val sysTitle = sbn.notification.extras?.getCharSequence(
+                            android.app.Notification.EXTRA_TITLE
+                        )?.toString() ?: ""
+                        val sysAppName = getAppName(packageName)
+                        val sysText = extractNotificationText(notification)
+                        addToHistory(
+                            appName = sysAppName,
+                            packageName = packageName,
+                            title = sysTitle,
+                            text = sysText,
+                            wasRead = false,
+                            spokenText = null,
+                            blockedReason = "System: Blocked group summary"
+                        )
                     }
                     return
                 }
@@ -803,6 +875,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 
                 // Extract notification text
                 val notificationText = extractNotificationText(notification)
+                val showSystemBlocks = sharedPreferences?.getBoolean("show_system_blocks_history", false) ?: false
                 
                 // Log notification details for debugging
                 Log.d(TAG, "Processing notification - Package: $packageName, ID: ${sbn.id}, Text: '${notificationText.take(100)}...'")
@@ -830,6 +903,20 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                                 StatisticsManager.getInstance(this).incrementFilterReason(StatisticsManager.FILTER_GROUP_CHILD_REPOST)
                             } catch (e: Exception) {
                                 Log.e(TAG, "Error tracking group child repost filter", e)
+                            }
+                            if (showSystemBlocks) {
+                                val sysTitle = sbn.notification.extras?.getCharSequence(
+                                    android.app.Notification.EXTRA_TITLE
+                                )?.toString() ?: ""
+                                addToHistory(
+                                    appName = appName,
+                                    packageName = packageName,
+                                    title = sysTitle,
+                                    text = notificationText,
+                                    wasRead = false,
+                                    spokenText = null,
+                                    blockedReason = "System: Blocked group child repost"
+                                )
                             }
                             return
                         }
@@ -873,6 +960,20 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                         } catch (e: Exception) {
                             Log.e(TAG, "Error tracking deduplication filter", e)
                         }
+                        if (showSystemBlocks) {
+                            val sysTitle = sbn.notification.extras?.getCharSequence(
+                                android.app.Notification.EXTRA_TITLE
+                            )?.toString() ?: ""
+                            addToHistory(
+                                appName = appName,
+                                packageName = packageName,
+                                title = sysTitle,
+                                text = notificationText,
+                                wasRead = false,
+                                spokenText = null,
+                                blockedReason = "System: Blocked as duplicate"
+                            )
+                        }
                         return
                     }
                     
@@ -895,6 +996,20 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                         } catch (e: Exception) {
                             Log.e(TAG, "Error tracking deduplication filter", e)
                         }
+                        if (showSystemBlocks) {
+                            val sysTitle = sbn.notification.extras?.getCharSequence(
+                                android.app.Notification.EXTRA_TITLE
+                            )?.toString() ?: ""
+                            addToHistory(
+                                appName = appName,
+                                packageName = packageName,
+                                title = sysTitle,
+                                text = notificationText,
+                                wasRead = false,
+                                spokenText = null,
+                                blockedReason = "System: Blocked as duplicate"
+                            )
+                        }
                         return
                     }
                     
@@ -914,6 +1029,20 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                                 StatisticsManager.getInstance(this).incrementFilterReason(StatisticsManager.FILTER_DEDUPLICATION)
                             } catch (e: Exception) {
                                 Log.e(TAG, "Error tracking deduplication filter", e)
+                            }
+                            if (showSystemBlocks) {
+                                val sysTitle = sbn.notification.extras?.getCharSequence(
+                                    android.app.Notification.EXTRA_TITLE
+                                )?.toString() ?: ""
+                                addToHistory(
+                                    appName = appName,
+                                    packageName = packageName,
+                                    title = sysTitle,
+                                    text = notificationText,
+                                    wasRead = false,
+                                    spokenText = null,
+                                    blockedReason = "System: Blocked as duplicate"
+                                )
                             }
                             return
                         }
@@ -937,6 +1066,20 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                                 StatisticsManager.getInstance(this).incrementFilterReason(StatisticsManager.FILTER_DEDUPLICATION)
                             } catch (e: Exception) {
                                 Log.e(TAG, "Error tracking deduplication filter", e)
+                            }
+                            if (showSystemBlocks) {
+                                val sysTitle = sbn.notification.extras?.getCharSequence(
+                                    android.app.Notification.EXTRA_TITLE
+                                )?.toString() ?: ""
+                                addToHistory(
+                                    appName = appName,
+                                    packageName = packageName,
+                                    title = sysTitle,
+                                    text = notificationText,
+                                    wasRead = false,
+                                    spokenText = null,
+                                    blockedReason = "System: Blocked as duplicate"
+                                )
                             }
                             return
                         }
@@ -968,6 +1111,20 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                                 StatisticsManager.getInstance(this).incrementFilterReason(StatisticsManager.FILTER_DISMISSAL_MEMORY)
                             } catch (e: Exception) {
                                 Log.e(TAG, "Error tracking dismissal memory filter", e)
+                            }
+                            if (showSystemBlocks) {
+                                val sysTitle = sbn.notification.extras?.getCharSequence(
+                                    android.app.Notification.EXTRA_TITLE
+                                )?.toString() ?: ""
+                                addToHistory(
+                                    appName = appName,
+                                    packageName = packageName,
+                                    title = sysTitle,
+                                    text = notificationText,
+                                    wasRead = false,
+                                    spokenText = null,
+                                    blockedReason = "System: Blocked by dismissal memory"
+                                )
                             }
                             return
                         }
@@ -1016,7 +1173,15 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                         
                         // Add to history
                         val rawTitle = if (isPrivateContent) "" else sbn?.notification?.extras?.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString() ?: ""
-                        addToHistory(finalAppName, packageName, rawTitle, filterResult.processedText)
+                        addToHistory(
+                            appName = finalAppName,
+                            packageName = packageName,
+                            title = rawTitle,
+                            text = notificationText,
+                            wasRead = true,
+                            spokenText = filterResult.processedText,
+                            blockedReason = null
+                        )
                         
                         // Handle notification based on behavior mode (pass conditional delay info)
                         handleNotificationBehavior(
@@ -1025,13 +1190,27 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                             filterResult.processedText,
                             filterResult.conditionalDelaySeconds,
                             sbn,
-                            filterResult.speechTemplateOverride
+                            filterResult.speechTemplateOverride,
+                            filterResult.voiceOverride
                         )
                     } else {
                         // Always log the full blocking reason with details
                         val reasonType = extractBlockingReasonType(filterResult.reason)
                         Log.d(TAG, "Notification blocked from $appName: Blocked: $reasonType (Details: ${filterResult.reason})")
                         InAppLogger.logFilter("Blocked notification from $appName: Blocked: $reasonType (Details: ${filterResult.reason})")
+                        val rawTitle = sbn.notification.extras?.getCharSequence(
+                            android.app.Notification.EXTRA_TITLE
+                        )?.toString() ?: ""
+                        val uiReason = "Silenced by: ${reasonType.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }}"
+                        addToHistory(
+                            appName = appName,
+                            packageName = packageName,
+                            title = rawTitle,
+                            text = notificationText,
+                            wasRead = false,
+                            spokenText = null,
+                            blockedReason = uiReason
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -1951,10 +2130,13 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         }
     }
     
-    private fun addToHistory(appName: String, packageName: String, title: String, text: String) {
+    private fun addToHistory(
+        appName: String, packageName: String, title: String, text: String,
+        wasRead: Boolean = true, spokenText: String? = null, blockedReason: String? = null
+    ) {
         try {
             val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
-            val notificationData = NotificationData(appName, packageName, title, text, timestamp)
+            val notificationData = NotificationData(appName, packageName, title, text, timestamp, wasRead, spokenText, blockedReason)
             
             // Add to batch queue instead of immediate database write
             historyBatchQueue.add(notificationData)
@@ -2187,6 +2369,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     
     private fun loadCooldownSettings() {
         appCooldownSettings.clear()
+        appCooldownTimestamps.clear()
         try {
             val cooldownAppsJson = sharedPreferences?.getString(KEY_COOLDOWN_APPS, "[]") ?: "[]"
             val jsonArray = org.json.JSONArray(cooldownAppsJson)
@@ -2196,7 +2379,21 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 val cooldownSeconds = jsonObject.optInt("cooldownSeconds", 5)
                 appCooldownSettings[packageName] = cooldownSeconds
             }
+            val cooldownTimestampsJson = sharedPreferences?.getString(KEY_COOLDOWN_TIMESTAMPS, "{}") ?: "{}"
+            val timestampObject = org.json.JSONObject(cooldownTimestampsJson)
+            val iterator = timestampObject.keys()
+            while (iterator.hasNext()) {
+                val packageName = iterator.next()
+                if (!appCooldownSettings.containsKey(packageName)) {
+                    continue
+                }
+                val lastTimestamp = timestampObject.optLong(packageName, 0L)
+                if (lastTimestamp > 0L) {
+                    appCooldownTimestamps[packageName] = lastTimestamp
+                }
+            }
             Log.d(TAG, "Loaded cooldown settings for ${appCooldownSettings.size} apps")
+            Log.d(TAG, "Loaded cooldown timestamps for ${appCooldownTimestamps.size} apps")
         } catch (e: Exception) {
             Log.e(TAG, "Error loading cooldown settings", e)
         }
@@ -2218,7 +2415,22 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         }
         // Update timestamp for this app
         appCooldownTimestamps[packageName] = currentTime
+        persistCooldownTimestamps()
         return FilterResult(true, "", "Cooldown passed")
+    }
+
+    private fun persistCooldownTimestamps() {
+        try {
+            val timestampObject = org.json.JSONObject()
+            for ((packageName, timestamp) in appCooldownTimestamps) {
+                timestampObject.put(packageName, timestamp)
+            }
+            sharedPreferences?.edit()
+                ?.putString(KEY_COOLDOWN_TIMESTAMPS, timestampObject.toString())
+                ?.apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error persisting cooldown timestamps", e)
+        }
     }
     
     private fun loadFilterSettings() {
@@ -2318,12 +2530,18 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         val processedText: String,
         val reason: String = "",
         val conditionalDelaySeconds: Int = -1, // -1 means no conditional delay
-        val speechTemplateOverride: SpeechTemplateOverride? = null
+        val speechTemplateOverride: SpeechTemplateOverride? = null,
+        val voiceOverride: VoiceOverride? = null
     )
 
     data class SpeechTemplateOverride(
         val template: String,
         val templateKey: String? = null
+    )
+
+    data class VoiceOverride(
+        val language: String,
+        val voiceName: String? = null
     )
     
     /**
@@ -2409,6 +2627,10 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         val speechTemplateOverride = speechTemplateEffect?.let {
             SpeechTemplateOverride(it.template, it.templateKey)
         }
+        val voiceOverride = effects
+            .filterIsInstance<com.micoyc.speakthat.rules.Effect.OverrideTtsVoice>()
+            .lastOrNull()
+            ?.let { VoiceOverride(language = it.language, voiceName = it.voiceName) }
 
         // 6. Apply word filtering and replacements (optionally overriding private mode)
         val wordFilterResult = applyWordFiltering(text, appName, packageName, overridePrivate)
@@ -2427,12 +2649,16 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         if (speechTemplateOverride != null) {
             InAppLogger.logFilter("Rule effect: apply custom speech format")
         }
+        if (voiceOverride != null) {
+            InAppLogger.logFilter("Rule effect: override TTS voice")
+        }
 
         return FilterResult(
             shouldSpeak = true,
             processedText = processedText,
             reason = "Passed all filters",
-            speechTemplateOverride = speechTemplateOverride
+            speechTemplateOverride = speechTemplateOverride,
+            voiceOverride = voiceOverride
         )
     }
     
@@ -3294,6 +3520,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         
         textToSpeech?.stop()
         isCurrentlySpeaking = false
+        restoreGlobalVoiceSettingsIfNeeded("manual stop")
         
         // Clear current notification variables
         currentSpeechText = ""
@@ -3357,6 +3584,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         
         textToSpeech?.stop()
         isCurrentlySpeaking = false
+        restoreGlobalVoiceSettingsIfNeeded("audio focus stop")
         
         // Clear current notification variables
         currentSpeechText = ""
@@ -5101,7 +5329,8 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         text: String,
         conditionalDelaySeconds: Int = -1,
         sbn: StatusBarNotification? = null,
-        speechTemplateOverride: SpeechTemplateOverride? = null
+        speechTemplateOverride: SpeechTemplateOverride? = null,
+        voiceOverride: VoiceOverride? = null
     ) {
         val isPriorityApp = priorityApps.contains(packageName)
         
@@ -5114,7 +5343,8 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             conditionalDelaySeconds = conditionalDelaySeconds,
             sbn = sbn,
             originalAppName = originalAppName,
-            speechTemplateOverride = speechTemplateOverride
+            speechTemplateOverride = speechTemplateOverride,
+            voiceOverride = voiceOverride
         )
         
         Log.d(TAG, "Handling notification behavior - Mode: $notificationBehavior, App: $appName, Currently speaking: $isCurrentlySpeaking, Queue size: ${notificationQueue.size}")
@@ -5136,7 +5366,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         when (notificationBehavior) {
             "interrupt" -> {
                 Log.d(TAG, "INTERRUPT mode: Speaking immediately and interrupting any current speech")
-                speakNotificationImmediate(appName, text, conditionalDelaySeconds, sbn, originalAppName, speechTemplateOverride)
+                speakNotificationImmediate(appName, text, conditionalDelaySeconds, sbn, originalAppName, speechTemplateOverride, voiceOverride)
             }
             "queue" -> {
                 Log.d(TAG, "QUEUE mode: Adding to queue")
@@ -5147,7 +5377,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             "skip" -> {
                 if (!isCurrentlySpeaking) {
                     Log.d(TAG, "SKIP mode: Not currently speaking, will speak now")
-                    speakNotificationImmediate(appName, text, conditionalDelaySeconds, sbn, originalAppName, speechTemplateOverride)
+                    speakNotificationImmediate(appName, text, conditionalDelaySeconds, sbn, originalAppName, speechTemplateOverride, voiceOverride)
                 } else {
                     Log.d(TAG, "SKIP mode: Currently speaking, skipping notification from $appName")
                     // Track filter reason
@@ -5161,7 +5391,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             "smart" -> {
                 if (isPriorityApp) {
                     Log.d(TAG, "SMART mode: Priority app $appName - interrupting")
-                    speakNotificationImmediate(appName, text, conditionalDelaySeconds, sbn, originalAppName, speechTemplateOverride)
+                    speakNotificationImmediate(appName, text, conditionalDelaySeconds, sbn, originalAppName, speechTemplateOverride, voiceOverride)
                 } else {
                     Log.d(TAG, "SMART mode: Regular app $appName - adding to queue")
                     notificationQueue.add(queuedNotification)
@@ -5170,7 +5400,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             }
             else -> {
                 Log.d(TAG, "UNKNOWN mode '$notificationBehavior': Defaulting to interrupt")
-                speakNotificationImmediate(appName, text, conditionalDelaySeconds, sbn, originalAppName, speechTemplateOverride)
+                speakNotificationImmediate(appName, text, conditionalDelaySeconds, sbn, originalAppName, speechTemplateOverride, voiceOverride)
             }
         }
     }
@@ -5191,7 +5421,8 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 queuedNotification.conditionalDelaySeconds,
                 queuedNotification.sbn,
                 queuedNotification.originalAppName,
-                queuedNotification.speechTemplateOverride
+                queuedNotification.speechTemplateOverride,
+                queuedNotification.voiceOverride
             )
         } else if (isCurrentlySpeaking) {
             Log.d(TAG, "Still speaking, queue will be processed when current speech finishes")
@@ -5206,7 +5437,8 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         conditionalDelaySeconds: Int = -1,
         sbn: StatusBarNotification? = null,
         originalAppName: String? = null,
-        speechTemplateOverride: SpeechTemplateOverride? = null
+        speechTemplateOverride: SpeechTemplateOverride? = null,
+        voiceOverride: VoiceOverride? = null
     ) {
         if (!isTtsInitialized || textToSpeech == null) {
             Log.w(TAG, "TTS not initialized, cannot speak notification")
@@ -5252,15 +5484,21 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         if (effectiveDelay > 0) {
             Log.d(TAG, "Delaying speech by ${effectiveDelay}s")
             pendingReadoutRunnable = Runnable {
-                executeSpeech(tidySpeechText, appName, text, originalAppName)
+                executeSpeech(tidySpeechText, appName, text, originalAppName, voiceOverride)
             }
             delayHandler?.postDelayed(pendingReadoutRunnable!!, (effectiveDelay * 1000).toLong())
         } else {
-            executeSpeech(tidySpeechText, appName, text, originalAppName)
+            executeSpeech(tidySpeechText, appName, text, originalAppName, voiceOverride)
         }
     }
     
-    private fun executeSpeech(speechText: String, appName: String, originalText: String, originalAppName: String? = null) {
+    private fun executeSpeech(
+        speechText: String,
+        appName: String,
+        originalText: String,
+        originalAppName: String? = null,
+        voiceOverride: VoiceOverride? = null
+    ) {
         Log.d(TAG, "=== DUCKING DEBUG: executeSpeech called with text: ${speechText.take(50)}... ===")
         InAppLogger.log("Service", "=== DUCKING DEBUG: executeSpeech called with text: ${speechText.take(50)}... ===")
         
@@ -5299,6 +5537,9 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         Log.d(TAG, "=== DUCKING DEBUG: Refreshing voice settings before speech execution ===")
         InAppLogger.log("Service", "=== DUCKING DEBUG: Refreshing voice settings before speech execution ===")
         applyVoiceSettings()
+        if (voiceOverride != null && applyTemporaryVoiceOverride(voiceOverride)) {
+            isTemporaryVoiceOverrideActive = true
+        }
         
         // Add engine failure warning if needed
         var finalSpeechText = speechText
@@ -5313,6 +5554,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         if (!checkTtsHealth()) {
             Log.e(TAG, "TTS health check failed - cannot speak")
             InAppLogger.logError("Service", "TTS health check failed - cannot speak")
+            restoreGlobalVoiceSettingsIfNeeded("tts health check failed")
             return
         }
         
@@ -5552,6 +5794,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                         isCurrentlySpeaking = false
                         contentCapTimerRunnable = null
                         cancelSpeechSafetyTimeout("content cap")
+                        restoreGlobalVoiceSettingsIfNeeded("content cap stop")
                         
                         // Stop foreground service
                         stopForegroundService()
@@ -5617,6 +5860,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                     }
                     
                     InAppLogger.logTTSEvent("TTS completed", "Utterance finished")
+                    restoreGlobalVoiceSettingsIfNeeded("utterance done")
                     
                     // Track notification read for review reminder
                     trackNotificationReadForReview()
@@ -5673,6 +5917,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                     
                     Log.e(TAG, "TTS error occurred")
                     InAppLogger.logTTSEvent("TTS error", "Utterance failed")
+                    restoreGlobalVoiceSettingsIfNeeded("utterance error")
                     
                     // Attempt recovery for utterance errors
                     attemptTtsRecovery("Utterance error: $utteranceId")
@@ -5710,6 +5955,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             attemptTtsRecovery("speak() returned ERROR")
             isCurrentlySpeaking = false
             unregisterShakeListener()
+            restoreGlobalVoiceSettingsIfNeeded("speak() error")
             return
         }
     }
@@ -5732,6 +5978,56 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         } else {
             InAppLogger.log("Service", "Cannot apply voice settings - TTS not initialized or null")
         }
+    }
+
+    private fun applyTemporaryVoiceOverride(override: VoiceOverride): Boolean {
+        val tts = textToSpeech ?: return false
+        val targetLocale = parseVoiceOverrideLocale(override.language)
+        if (targetLocale != null) {
+            val languageResult = tts.setLanguage(targetLocale)
+            InAppLogger.log(
+                "Service",
+                "Applied temporary override language ${override.language} (result=$languageResult)"
+            )
+        } else {
+            InAppLogger.logError("Service", "Invalid temporary override language: ${override.language}")
+            return false
+        }
+
+        val selectedVoiceName = override.voiceName?.trim().orEmpty()
+        if (selectedVoiceName.isNotEmpty()) {
+            val matchingVoice = tts.voices?.firstOrNull { it.name == selectedVoiceName }
+            if (matchingVoice != null) {
+                val voiceResult = tts.setVoice(matchingVoice)
+                InAppLogger.log(
+                    "Service",
+                    "Applied temporary override voice $selectedVoiceName (result=$voiceResult)"
+                )
+            } else {
+                InAppLogger.logWarning(
+                    "Service",
+                    "Temporary override voice not available on current engine: $selectedVoiceName"
+                )
+            }
+        }
+        return true
+    }
+
+    private fun restoreGlobalVoiceSettingsIfNeeded(reason: String) {
+        if (!isTemporaryVoiceOverrideActive) {
+            return
+        }
+        isTemporaryVoiceOverrideActive = false
+        InAppLogger.log("Service", "Restoring global voice settings after temporary override ($reason)")
+        applyVoiceSettings()
+    }
+
+    private fun parseVoiceOverrideLocale(languageCode: String): Locale? {
+        val normalized = languageCode.trim()
+        if (normalized.isEmpty()) return null
+        val languageTag = normalized.replace('_', '-')
+        val locale = Locale.forLanguageTag(languageTag)
+        return if (locale.language.isNullOrBlank()) null else locale
     }
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {

@@ -915,6 +915,10 @@ Block = completely ignore, Private = speak privately
     <string name="general_persistent_notification_description">Show a persistent notification when SpeakThat is active</string>
     <string name="general_notification_while_reading">Notification While Reading</string>
     <string name="general_notification_while_reading_description">Show a notification when TTS is actively reading</string>
+    <string name="general_show_system_blocks">Log system blocks in history</string>
+    <string name="general_show_system_blocks_description">Saves background system events (like deduplication) to the history list. Helpful for troubleshooting.</string>
+    <string name="general_main_screen_history">Main Screen History</string>
+    <string name="general_main_screen_history_description">Display recent notifications and diagnostics on the app\'s home screen.</string>
     <string name="general_toast_notifications_title">Enable Toast Notifications</string>
     <string name="general_toast_main_app">Main app toggle</string>
     <string name="general_toast_main_app_description">Show toast when toggling master switch in the app</string>
@@ -1467,6 +1471,13 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="action_custom_speech_format_preset_label">Preset</string>
     <string name="action_custom_speech_format_label">Speech Format</string>
     <string name="action_custom_speech_format_hint">Enter speech format</string>
+    <string name="action_override_tts_voice_title">Override TTS Voice</string>
+    <string name="action_override_tts_voice_description">Temporarily override language and specific voice for this notification only.</string>
+    <string name="action_override_tts_voice_language_label">Language</string>
+    <string name="action_override_tts_voice_show_advanced">Show specific voice</string>
+    <string name="action_override_tts_voice_specific_voice_label">Specific Voice (Advanced)</string>
+    <string name="action_override_tts_voice_specific_voice_description">Optional. Uses the current global TTS engine and applies this voice only to this notification.</string>
+    <string name="action_override_tts_voice_default_voice_option">Default (Use selected language voice)</string>
     <string name="action_force_private_title">Force Private</string>
     <string name="action_force_private_description">Read the app name, but not the notification content.</string>
     <string name="action_override_private_title">Override Private</string>
@@ -1581,7 +1592,28 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="item_cooldown_app_name">App Name</string>
     <string name="item_cooldown_package">com.example.app</string>
     <string name="item_cooldown_no_cooldown">No cooldown</string>
+    <string name="cooldown_dialog_title">Set cooldown</string>
+    <string name="cooldown_dialog_value_hint">Enter a number</string>
+    <string name="cooldown_unit_seconds">Seconds</string>
+    <string name="cooldown_unit_minutes">Minutes</string>
+    <string name="cooldown_unit_hours">Hours</string>
+    <string name="cooldown_error_required">Enter a value</string>
+    <string name="cooldown_error_positive">Value must be greater than 0</string>
+    <string name="cooldown_error_max_24_hours">Cooldown cannot exceed 24 hours</string>
     <string name="item_cooldown_delete">🗑️</string>
+
+    <plurals name="cooldown_seconds_label">
+        <item quantity="one">%d second</item>
+        <item quantity="other">%d seconds</item>
+    </plurals>
+    <plurals name="cooldown_minutes_label">
+        <item quantity="one">%d minute</item>
+        <item quantity="other">%d minutes</item>
+    </plurals>
+    <plurals name="cooldown_hours_label">
+        <item quantity="one">%d hour</item>
+        <item quantity="other">%d hours</item>
+    </plurals>
 
     <!-- More Item Layout Strings -->
     <string name="item_word_filter_word">Word</string>
@@ -2095,6 +2127,7 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="notification_history_description">SpeakThat! records your 15 most recent notifications so you can filter them later. Tap a notification to easily filter ones just like it in the future.</string>
     <string name="notification_history_home_empty">No notifications recorded yet. Notifications will appear here as SpeakThat! reads them.</string>
     <string name="all_time_statistics_title">All-Time Statistics</string>
+    <string name="mainscreen_notification_history_spoke">Spoke: \"%1$s\"</string>
 
     <!-- Filter Bottom Sheet -->
     <string name="filter_sheet_title">Filter Similar</string>
@@ -2173,8 +2206,11 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="rule_error_invalid_wifi_networks">WiFi network list is invalid</string>
     <string name="rule_error_invalid_master_switch">Master switch action requires enabled true or false</string>
     <string name="rule_error_invalid_speech_template">Speech format cannot be empty</string>
+    <string name="rule_error_invalid_voice_override_language">Override TTS Voice requires a valid language</string>
+    <string name="rule_error_invalid_voice_override_voice">Override TTS Voice has an invalid specific voice</string>
     <string name="rule_action_master_switch">Set SpeakThat master switch</string>
     <string name="rule_action_custom_speech_format">Apply custom speech format</string>
+    <string name="rule_action_override_tts_voice">Override TTS voice</string>
     <string name="rule_action_force_private">Force private mode</string>
     <string name="rule_action_override_private">Override private mode</string>
     <string name="rule_action_use_voice_call">Use voice call audio routing</string>

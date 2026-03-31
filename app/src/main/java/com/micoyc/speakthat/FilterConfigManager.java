@@ -20,6 +20,7 @@ import java.util.Locale;
 import java.util.Set;
 import com.micoyc.speakthat.StatsSnapshot;
 import com.micoyc.speakthat.rules.RuleConfigManager;
+import com.micoyc.speakthat.settings.BehaviorSettingsStore;
 
 public class FilterConfigManager {
     
@@ -37,6 +38,10 @@ public class FilterConfigManager {
     private static final String KEY_URL_HANDLING_MODE = "url_handling_mode";
     private static final String KEY_URL_REPLACEMENT_TEXT = "url_replacement_text";
     private static final String KEY_TIDY_SPEECH_REMOVE_EMOJIS = "tidy_speech_remove_emojis";
+
+    private static float roundToTwoDecimalPlaces(float value) {
+        return Math.round(value * 100.0f) / 100.0f;
+    }
     
     public static class FilterConfig {
         public String appListMode;
@@ -45,18 +50,11 @@ public class FilterConfigManager {
         public String wordListMode;
         public Set<String> wordBlacklist;
         public Set<String> wordBlacklistPrivate;
-        public String wordReplacements; // Stored as delimited string
+        public String wordReplacements; // JSON array of {"from","to"} in prefs
         public String urlHandlingMode;
         public String urlReplacementText;
         public boolean tidySpeechRemoveEmojis;
-        // Media filtering settings
         public boolean mediaFilteringEnabled;
-        public Set<String> mediaFilterExceptedApps;
-        public Set<String> mediaFilterExceptedAppsPrivate;
-        public Set<String> mediaFilterImportantKeywords;
-        public Set<String> mediaFilterImportantKeywordsPrivate;
-        public Set<String> mediaFilteredApps;
-        public Set<String> mediaFilteredAppsPrivate;
         // Persistent/silent filtering settings
         public boolean persistentFilteringEnabled;
         public boolean filterPersistent;
@@ -78,14 +76,7 @@ public class FilterConfigManager {
             this.urlHandlingMode = "domain_only";
             this.urlReplacementText = "";
             this.tidySpeechRemoveEmojis = false;
-            // Media filtering defaults
             this.mediaFilteringEnabled = false;
-            this.mediaFilterExceptedApps = new HashSet<>();
-            this.mediaFilterExceptedAppsPrivate = new HashSet<>();
-            this.mediaFilterImportantKeywords = new HashSet<>();
-            this.mediaFilterImportantKeywordsPrivate = new HashSet<>();
-            this.mediaFilteredApps = new HashSet<>();
-            this.mediaFilteredAppsPrivate = new HashSet<>();
             // Persistent/silent filtering defaults
             this.persistentFilteringEnabled = false;
             this.filterPersistent = true;
@@ -187,6 +178,7 @@ public class FilterConfigManager {
         public int dismissalMemoryTimeout;
         public boolean disableMediaFallback;
         public boolean enableLegacyDucking;
+        public String earconMode;
         
         public BehaviorConfig() {
             this.notificationBehavior = "interrupt";
@@ -221,6 +213,7 @@ public class FilterConfigManager {
             this.dismissalMemoryTimeout = 15;
             this.disableMediaFallback = false;
             this.enableLegacyDucking = false;
+            this.earconMode = BehaviorSettingsStore.EARCON_NONE;
         }
     }
     
@@ -237,7 +230,7 @@ public class FilterConfigManager {
             this.autoStartOnBoot = false;
             this.batteryOptimizationDisabled = false;
             this.aggressiveBackgroundProcessing = false;
-            this.serviceRestartPolicy = "periodic";
+            this.serviceRestartPolicy = "crash";
         }
     }
 
@@ -295,6 +288,7 @@ public class FilterConfigManager {
         config.urlHandlingMode = prefs.getString(KEY_URL_HANDLING_MODE, "domain_only");
         config.urlReplacementText = prefs.getString(KEY_URL_REPLACEMENT_TEXT, "");
         config.tidySpeechRemoveEmojis = prefs.getBoolean(KEY_TIDY_SPEECH_REMOVE_EMOJIS, false);
+        config.mediaFilteringEnabled = prefs.getBoolean("media_filtering_enabled", true);
         
         // Create JSON structure
         JSONObject json = new JSONObject();
@@ -319,6 +313,7 @@ public class FilterConfigManager {
         filters.put("urlHandlingMode", config.urlHandlingMode);
         filters.put("urlReplacementText", config.urlReplacementText);
         filters.put("tidySpeechRemoveEmojis", config.tidySpeechRemoveEmojis);
+        filters.put("mediaFilteringEnabled", config.mediaFilteringEnabled);
         json.put("filters", filters);
         
         // Future extension point - we can add more sections here
@@ -356,14 +351,7 @@ public class FilterConfigManager {
         config.filters.urlReplacementText = prefs.getString(KEY_URL_REPLACEMENT_TEXT, "");
         config.filters.tidySpeechRemoveEmojis = prefs.getBoolean(KEY_TIDY_SPEECH_REMOVE_EMOJIS, false);
         
-        // Load media filtering settings
         config.filters.mediaFilteringEnabled = prefs.getBoolean("media_filtering_enabled", false);
-        config.filters.mediaFilterExceptedApps = new HashSet<>(prefs.getStringSet("media_filter_excepted_apps", new HashSet<>()));
-        config.filters.mediaFilterExceptedAppsPrivate = new HashSet<>(prefs.getStringSet("media_filter_excepted_apps_private", new HashSet<>()));
-        config.filters.mediaFilterImportantKeywords = new HashSet<>(prefs.getStringSet("media_filter_important_keywords", new HashSet<>()));
-        config.filters.mediaFilterImportantKeywordsPrivate = new HashSet<>(prefs.getStringSet("media_filter_important_keywords_private", new HashSet<>()));
-        config.filters.mediaFilteredApps = new HashSet<>(prefs.getStringSet("media_filtered_apps", new HashSet<>()));
-        config.filters.mediaFilteredAppsPrivate = new HashSet<>(prefs.getStringSet("media_filtered_apps_private", new HashSet<>()));
         
         // Load persistent/silent filtering settings
         config.filters.persistentFilteringEnabled = prefs.getBoolean("persistent_filtering_enabled", false);
@@ -375,8 +363,8 @@ public class FilterConfigManager {
         
         // Load voice settings
         config.voice.speechRate = voicePrefs.getFloat("speech_rate", 1.0f);
-        config.voice.pitch = voicePrefs.getFloat("pitch", 1.0f);
-        config.voice.ttsVolume = voicePrefs.getFloat("tts_volume", 1.0f);
+        config.voice.pitch = VoiceSettingsActivity.sanitizePitchForStorage(voicePrefs.getFloat("pitch", 1.0f));
+        config.voice.ttsVolume = Math.min(1.0f, voicePrefs.getFloat("tts_volume", 1.0f));
         config.voice.voiceName = voicePrefs.getString("voice_name", "");
         config.voice.language = voicePrefs.getString("language", "en_US");
         config.voice.ttsLanguage = voicePrefs.getString("tts_language", "system");        // NEW
@@ -398,6 +386,10 @@ public class FilterConfigManager {
         config.behavior.duckingVolume = prefs.getInt("ducking_volume", 30);
         config.behavior.duckingFallbackStrategy = prefs.getString("ducking_fallback_strategy", "manual");
         config.behavior.delayBeforeReadout = prefs.getInt("delay_before_readout", 0);
+        config.behavior.earconMode = prefs.getString(
+            BehaviorSettingsStore.KEY_EARCON_MODE,
+            BehaviorSettingsStore.DEFAULT_EARCON_MODE
+        );
         config.behavior.honourDoNotDisturb = prefs.getBoolean("honour_do_not_disturb", true);
         config.behavior.honourPhoneCalls = prefs.getBoolean("honour_phone_calls", true); // Add honour phone calls
         // Split audio mode: prefer new keys, fall back to legacy combined flag
@@ -429,7 +421,7 @@ public class FilterConfigManager {
         config.general.autoStartOnBoot = prefs.getBoolean("auto_start_on_boot", false);
         config.general.batteryOptimizationDisabled = prefs.getBoolean("battery_optimization_disabled", false);
         config.general.aggressiveBackgroundProcessing = prefs.getBoolean("aggressive_background_processing", false);
-        config.general.serviceRestartPolicy = prefs.getString("service_restart_policy", "periodic");
+        config.general.serviceRestartPolicy = prefs.getString("service_restart_policy", "crash");
 
         // Load statistics from main prefs
         StatsSnapshot statsSnapshot = StatisticsManager.Companion.exportSnapshot(context);
@@ -466,14 +458,7 @@ public class FilterConfigManager {
         filters.put("urlHandlingMode", config.filters.urlHandlingMode);
         filters.put("urlReplacementText", config.filters.urlReplacementText);
         filters.put("tidySpeechRemoveEmojis", config.filters.tidySpeechRemoveEmojis);
-        // Media filtering settings
         filters.put("mediaFilteringEnabled", config.filters.mediaFilteringEnabled);
-        filters.put("mediaFilterExceptedApps", new JSONArray(config.filters.mediaFilterExceptedApps));
-        filters.put("mediaFilterExceptedAppsPrivate", new JSONArray(config.filters.mediaFilterExceptedAppsPrivate));
-        filters.put("mediaFilterImportantKeywords", new JSONArray(config.filters.mediaFilterImportantKeywords));
-        filters.put("mediaFilterImportantKeywordsPrivate", new JSONArray(config.filters.mediaFilterImportantKeywordsPrivate));
-        filters.put("mediaFilteredApps", new JSONArray(config.filters.mediaFilteredApps));
-        filters.put("mediaFilteredAppsPrivate", new JSONArray(config.filters.mediaFilteredAppsPrivate));
         // Persistent/silent filtering settings
         filters.put("persistentFilteringEnabled", config.filters.persistentFilteringEnabled);
         filters.put("filterPersistent", config.filters.filterPersistent);
@@ -511,6 +496,7 @@ public class FilterConfigManager {
         behavior.put("duckingVolume", config.behavior.duckingVolume);
         behavior.put("duckingFallbackStrategy", config.behavior.duckingFallbackStrategy);
         behavior.put("delayBeforeReadout", config.behavior.delayBeforeReadout);
+        behavior.put("earconMode", config.behavior.earconMode);
         behavior.put("honourDoNotDisturb", config.behavior.honourDoNotDisturb);
         behavior.put("honourPhoneCalls", config.behavior.honourPhoneCalls); // Add honour phone calls
         behavior.put("honourSilentMode", config.behavior.honourSilentMode); // Split audio mode
@@ -655,12 +641,13 @@ public class FilterConfigManager {
                 filtersImported += wordBlacklistPrivate.size();
             }
             
-            // Import word swaps
+            // Import word swaps (normalize legacy pipe/colon backups to JSON)
             if (filters.has("wordReplacements")) {
                 String wordReplacements = filters.getString("wordReplacements");
-                editor.putString(KEY_WORD_REPLACEMENTS, wordReplacements);
-                if (!wordReplacements.isEmpty()) {
-                    filtersImported += wordReplacements.split("\\|").length;
+                String normalized = WordReplacementsStorage.normalizeImportedValue(wordReplacements);
+                editor.putString(KEY_WORD_REPLACEMENTS, normalized);
+                if (!normalized.isEmpty()) {
+                    filtersImported += WordReplacementsStorage.countSwaps(normalized);
                 }
             }
             
@@ -677,6 +664,11 @@ public class FilterConfigManager {
 
             if (filters.has("tidySpeechRemoveEmojis")) {
                 editor.putBoolean(KEY_TIDY_SPEECH_REMOVE_EMOJIS, filters.getBoolean("tidySpeechRemoveEmojis"));
+                filtersImported++;
+            }
+
+            if (filters.has("mediaFilteringEnabled")) {
+                editor.putBoolean("media_filtering_enabled", filters.getBoolean("mediaFilteringEnabled"));
                 filtersImported++;
             }
             
@@ -770,9 +762,10 @@ public class FilterConfigManager {
                 
                 if (filters.has("wordReplacements")) {
                     String wordReplacements = filters.getString("wordReplacements");
-                    mainEditor.putString(KEY_WORD_REPLACEMENTS, wordReplacements);
-                    if (!wordReplacements.isEmpty()) {
-                        totalImported += wordReplacements.split("\\|").length;
+                    String normalized = WordReplacementsStorage.normalizeImportedValue(wordReplacements);
+                    mainEditor.putString(KEY_WORD_REPLACEMENTS, normalized);
+                    if (!normalized.isEmpty()) {
+                        totalImported += WordReplacementsStorage.countSwaps(normalized);
                     }
                 }
                 
@@ -796,42 +789,6 @@ public class FilterConfigManager {
                 if (filters.has("mediaFilteringEnabled")) {
                     mainEditor.putBoolean("media_filtering_enabled", filters.getBoolean("mediaFilteringEnabled"));
                     totalImported++;
-                }
-                
-                if (filters.has("mediaFilterExceptedApps")) {
-                    Set<String> excepted = jsonArrayToStringSet(filters.getJSONArray("mediaFilterExceptedApps"));
-                    mainEditor.putStringSet("media_filter_excepted_apps", excepted);
-                    totalImported += excepted.size();
-                }
-                
-                if (filters.has("mediaFilterExceptedAppsPrivate")) {
-                    Set<String> exceptedPrivate = jsonArrayToStringSet(filters.getJSONArray("mediaFilterExceptedAppsPrivate"));
-                    mainEditor.putStringSet("media_filter_excepted_apps_private", exceptedPrivate);
-                    totalImported += exceptedPrivate.size();
-                }
-                
-                if (filters.has("mediaFilterImportantKeywords")) {
-                    Set<String> keywords = jsonArrayToStringSet(filters.getJSONArray("mediaFilterImportantKeywords"));
-                    mainEditor.putStringSet("media_filter_important_keywords", keywords);
-                    totalImported += keywords.size();
-                }
-                
-                if (filters.has("mediaFilterImportantKeywordsPrivate")) {
-                    Set<String> keywordsPrivate = jsonArrayToStringSet(filters.getJSONArray("mediaFilterImportantKeywordsPrivate"));
-                    mainEditor.putStringSet("media_filter_important_keywords_private", keywordsPrivate);
-                    totalImported += keywordsPrivate.size();
-                }
-                
-                if (filters.has("mediaFilteredApps")) {
-                    Set<String> filtered = jsonArrayToStringSet(filters.getJSONArray("mediaFilteredApps"));
-                    mainEditor.putStringSet("media_filtered_apps", filtered);
-                    totalImported += filtered.size();
-                }
-                
-                if (filters.has("mediaFilteredAppsPrivate")) {
-                    Set<String> filteredPrivate = jsonArrayToStringSet(filters.getJSONArray("mediaFilteredAppsPrivate"));
-                    mainEditor.putStringSet("media_filtered_apps_private", filteredPrivate);
-                    totalImported += filteredPrivate.size();
                 }
                 
                 // Import persistent/silent filtering settings
@@ -871,17 +828,19 @@ public class FilterConfigManager {
                 JSONObject voice = json.getJSONObject("voice");
                 
                 if (voice.has("speechRate")) {
-                    voiceEditor.putFloat("speech_rate", (float) voice.getDouble("speechRate"));
+                    float speechRate = roundToTwoDecimalPlaces((float) voice.getDouble("speechRate"));
+                    voiceEditor.putFloat("speech_rate", speechRate);
                     totalImported++;
                 }
                 
                 if (voice.has("pitch")) {
-                    voiceEditor.putFloat("pitch", (float) voice.getDouble("pitch"));
+                    float pitch = VoiceSettingsActivity.sanitizePitchForStorage((float) voice.getDouble("pitch"));
+                    voiceEditor.putFloat("pitch", pitch);
                     totalImported++;
                 }
                 
                 if (voice.has("ttsVolume")) {
-                    voiceEditor.putFloat("tts_volume", (float) voice.getDouble("ttsVolume"));
+                    voiceEditor.putFloat("tts_volume", Math.min(1.0f, (float) voice.getDouble("ttsVolume")));
                     totalImported++;
                 }
                 
@@ -1018,6 +977,14 @@ public class FilterConfigManager {
                 
                 if (behavior.has("delayBeforeReadout")) {
                     mainEditor.putInt("delay_before_readout", behavior.getInt("delayBeforeReadout"));
+                    totalImported++;
+                }
+
+                if (behavior.has("earconMode")) {
+                    mainEditor.putString(
+                        BehaviorSettingsStore.KEY_EARCON_MODE,
+                        behavior.getString("earconMode")
+                    );
                     totalImported++;
                 }
                 
@@ -1294,7 +1261,7 @@ public class FilterConfigManager {
             summary.append(", ").append(privateWords.size()).append(" private");
         }
         if (!replacements.isEmpty()) {
-            int replacementCount = replacements.split("\\|").length;
+            int replacementCount = WordReplacementsStorage.countSwaps(replacements);
             summary.append(", ").append(replacementCount).append(" replacements");
         }
         

@@ -246,7 +246,7 @@ class OnboardingActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             
             // CRITICAL: Apply audio attributes to TTS instance before creating volume bundle
             // This ensures the audio usage matches what we pass to createVolumeBundle
-            val ttsVolume = voiceSettingsPrefs?.getFloat("tts_volume", 1.0f) ?: 1.0f
+            val ttsVolume = minOf(1.0f, voiceSettingsPrefs?.getFloat("tts_volume", 1.0f) ?: 1.0f)
             val ttsUsageIndex = voiceSettingsPrefs?.getInt("audio_usage", 4) ?: 4 // Default to ASSISTANT index
             val contentTypeIndex = voiceSettingsPrefs?.getInt("content_type", 0) ?: 0 // Default to SPEECH
             val speakerphoneEnabled = voiceSettingsPrefs?.getBoolean("speakerphone_enabled", false) ?: false
@@ -312,6 +312,9 @@ class OnboardingActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (!isTtsInitialized) return
         
         val currentPage = binding.viewPager.currentItem
+        if (currentPage == 4 && adapter.suppressAutoTtsForSystemCheckPage) {
+            return
+        }
         val pageContent = when (currentPage) {
             0 -> getLocalizedTtsString(R.string.tts_onboarding_language_new)
             1 -> getLocalizedTtsString(R.string.tts_onboarding_welcome_new)
@@ -451,6 +454,9 @@ class OnboardingActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // Register page change callback
         binding.viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
+                if (position != 4) {
+                    adapter.clearSystemCheckAutoTtsSuppression()
+                }
                 updateButtonStates(position, adapter.itemCount)
                 updatePageIndicator(position)
                 

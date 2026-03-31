@@ -61,6 +61,8 @@ import android.text.style.StyleSpan
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.DefaultItemAnimator
 import com.micoyc.speakthat.rules.migration.RuleMigrationManager
+import com.micoyc.speakthat.summary.SummaryConstants
+import com.micoyc.speakthat.summary.SummarySettingsGate
 import org.woheller69.freeDroidWarn.FreeDroidWarn
 import java.text.NumberFormat
 
@@ -86,7 +88,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
     // Wave detection
     private var proximitySensor: Sensor? = null
     private var isWaveToStopEnabled = false
-    private var waveThreshold = 5.0f
     
     // Voice settings listener
     private var voiceSettingsPrefs: SharedPreferences? = null
@@ -435,8 +436,34 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
             InAppLogger.logUserAction("Logo clicked", "First tap: $isFirstLogoTap")
             handleLogoClick()
         }
+        binding.logoSpeakThat.setOnLongClickListener {
+            InAppLogger.logUserAction("Logo long-pressed", "Triggering summary")
+            triggerProactiveSummaryFromLogo()
+            true
+        }
         
 
+    }
+
+    private fun triggerProactiveSummaryFromLogo() {
+        if (!SummarySettingsGate.isGlobalGateOpen(this)) {
+            Toast.makeText(this, getString(R.string.summary_trigger_blocked_globally), Toast.LENGTH_SHORT).show()
+            InAppLogger.log("MainActivity", "Summary trigger blocked from logo long-press; global gate closed")
+            return
+        }
+        try {
+            val triggerIntent = Intent(SummaryConstants.ACTION_TRIGGER_SUMMARY).apply {
+                `package` = packageName
+                putExtra(SummaryConstants.EXTRA_TRIGGER_SOURCE, "main_logo_long_press")
+            }
+            sendBroadcast(triggerIntent)
+            Toast.makeText(this, "Summary triggered", Toast.LENGTH_SHORT).show()
+            InAppLogger.log("MainActivity", "Summary trigger broadcast sent from logo long-press")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to trigger summary from logo long-press", e)
+            InAppLogger.logError("MainActivity", "Failed to trigger summary: ${e.message}")
+            Toast.makeText(this, "Failed to trigger summary", Toast.LENGTH_SHORT).show()
+        }
     }
     
     private fun updateServiceStatus() {
@@ -1001,8 +1028,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
         
         // Log wave-to-stop settings for debugging
         val waveEnabled = sharedPreferences?.getBoolean(KEY_WAVE_TO_STOP_ENABLED, false) ?: false
-        val waveThreshold = sharedPreferences?.getFloat("wave_threshold", 3.0f) ?: 3.0f
-        InAppLogger.log("MainActivity", "Wave-to-stop settings - enabled: $waveEnabled, threshold: ${waveThreshold}cm")
+        InAppLogger.log("MainActivity", "Wave-to-stop settings - enabled: $waveEnabled (universal proximity covered rule)")
         
         if (!isTtsInitialized) {
             Log.w(TAG, "TTS not initialized, cannot play logo easter egg")
@@ -1103,7 +1129,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
             // CRITICAL: Apply audio attributes to TTS instance before creating volume bundle
             // This ensures the audio usage matches what we pass to createVolumeBundle
             val voiceSettingsPrefs = getSharedPreferences("VoiceSettings", MODE_PRIVATE)
-            val ttsVolume = voiceSettingsPrefs.getFloat("tts_volume", 1.0f)
+            val ttsVolume = minOf(1.0f, voiceSettingsPrefs.getFloat("tts_volume", 1.0f))
             val ttsUsageIndex = voiceSettingsPrefs.getInt("audio_usage", 4) // Default to ASSISTANT index
             val contentTypeIndex = voiceSettingsPrefs.getInt("content_type", 0) // Default to SPEECH
             val speakerphoneEnabled = voiceSettingsPrefs.getBoolean("speakerphone_enabled", false)
@@ -1167,13 +1193,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
 
     private fun loadWaveSettings() {
         isWaveToStopEnabled = sharedPreferences?.getBoolean(KEY_WAVE_TO_STOP_ENABLED, false) ?: false
-        // Use calibrated threshold if available, otherwise fall back to old system
-        waveThreshold = if (sharedPreferences?.contains("wave_threshold_v1") == true) {
-            sharedPreferences?.getFloat("wave_threshold_v1", 3.0f) ?: 3.0f
-        } else {
-            sharedPreferences?.getFloat("wave_threshold", 3.0f) ?: 3.0f
-        }
-        Log.d(TAG, "MainActivity wave settings - enabled: $isWaveToStopEnabled, threshold: $waveThreshold")
+        Log.d(TAG, "MainActivity wave settings - enabled: $isWaveToStopEnabled")
     }
     
     private fun startShakeListening() {
@@ -1235,39 +1255,17 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
                 stopSpeaking("shake")
             }
         } else if (event.sensor.type == Sensor.TYPE_PROXIMITY && isWaveToStopEnabled) {
-            // Proximity sensor returns distance in cm
             val proximityValue = event.values[0]
-            
-            // Handle different proximity sensor behaviors:
-            // Some sensors return 0 when close, others return actual distance
-            val isTriggered = if (proximityValue == 0f) {
-                // Sensor returns 0 when object is very close (most common)
-                true
-            } else {
-                // Sensor returns actual distance, check if closer than threshold
-                // Use < instead of <= to avoid triggering when sensor is at max range
-                // ADDITIONAL SAFETY: Only trigger if the value is significantly different from max range
-                // This prevents false triggers on devices like Pixel 2 XL that read ~5cm when uncovered
-                val maxRange = proximitySensor?.maximumRange ?: 5.0f
-                val significantChange = maxRange * 0.3f // Require at least 30% change from max
-                val distanceFromMax = maxRange - proximityValue
-                
-                proximityValue < waveThreshold && distanceFromMax > significantChange
-            }
-            
+            val maxRange = proximitySensor?.maximumRange ?: 5.0f
+            val isTriggered = ProximityCover.isCovered(proximityValue, proximitySensor)
+
             if (isTriggered) {
-                val maxRange = proximitySensor?.maximumRange ?: 5.0f
-                val distanceFromMax = maxRange - proximityValue
-                
-                Log.d(TAG, "Wave detected in MainActivity! Stopping TTS. Proximity: $proximityValue cm, threshold: $waveThreshold cm, maxRange: $maxRange cm, distanceFromMax: $distanceFromMax cm")
-                InAppLogger.log("MainActivity", "Wave detected - proximity: ${proximityValue}cm, threshold: ${waveThreshold}cm, maxRange: ${maxRange}cm")
+                Log.d(TAG, "Wave detected in MainActivity! Stopping TTS. Proximity: $proximityValue cm, maxRange: $maxRange cm, covered=true")
+                InAppLogger.log("MainActivity", "Wave detected - proximity: ${proximityValue}cm, maxRange: ${maxRange}cm")
                 stopSpeaking("wave")
             } else {
-                // Log proximity values for debugging (but not too frequently)
-                if (System.currentTimeMillis() % 1000 < 100) { // Log ~10% of the time
-                    val maxRange = proximitySensor?.maximumRange ?: 5.0f
-                    val distanceFromMax = maxRange - proximityValue
-                    Log.d(TAG, "Proximity sensor reading: $proximityValue cm (threshold: $waveThreshold cm, maxRange: $maxRange cm, distanceFromMax: $distanceFromMax cm)")
+                if (System.currentTimeMillis() % 1000 < 100) {
+                    Log.d(TAG, "Proximity sensor reading: $proximityValue cm (maxRange: $maxRange cm, covered=false)")
                 }
             }
         }
@@ -1675,24 +1673,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, SensorEve
      */
     private fun checkShouldReadNotifications(): DiagnosticResult {
         return try {
-            // Check master switch
-            if (!MainActivity.isMasterSwitchEnabled(this)) {
-                return DiagnosticResult("N", "Master switch disabled")
-            }
-            
-            // Check Do Not Disturb if honor DND is enabled
-            val voiceSettingsPrefs = getSharedPreferences("VoiceSettings", MODE_PRIVATE)
-            val honorDnd = voiceSettingsPrefs.getBoolean("honor_dnd", false)
-            if (honorDnd) {
-                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                    val dndMode = notificationManager.currentInterruptionFilter
-                    if (dndMode == android.app.NotificationManager.INTERRUPTION_FILTER_NONE) {
-                        return DiagnosticResult("N", "Do Not Disturb is active")
-                    }
+            val suppressReason = GlobalReadoutSuppression.getGlobalSuppressionReason(this)
+            if (suppressReason != null) {
+                val message = when (suppressReason) {
+                    "master_switch" -> "Master switch disabled"
+                    "do_not_disturb" -> "Do Not Disturb is active"
+                    "audio_mode" -> "Honour Silent/Vibrate mode"
+                    "phone_call" -> "Active phone call"
+                    else -> "Readout suppressed ($suppressReason)"
                 }
+                return DiagnosticResult("N", message)
             }
-            
+
             // Check if any rules are blocking (simplified check)
             val automationMode = AutomationModeManager(this).getMode()
             when (automationMode) {

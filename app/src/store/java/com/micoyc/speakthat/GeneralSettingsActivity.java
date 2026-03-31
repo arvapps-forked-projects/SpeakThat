@@ -26,6 +26,9 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.micoyc.speakthat.databinding.ActivityGeneralSettingsBinding;
+import com.micoyc.speakthat.permissions.PermissionCatalog;
+import com.micoyc.speakthat.permissions.PermissionSyncManager;
+import com.micoyc.speakthat.permissions.PermissionSyncSession;
 import org.json.JSONException;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -53,6 +56,8 @@ public class GeneralSettingsActivity extends AppCompatActivity {
     private ActivityResultLauncher<Intent> fileSaverLauncher;
     private List<Rule> pendingRulesImport = null;
     private boolean includeRulesInExport = false;
+
+    private PermissionSyncSession permissionSyncSession = null;
 
     private static final int REQUEST_RULES_IMPORT_PERMISSIONS = 3001;
 
@@ -136,6 +141,8 @@ public class GeneralSettingsActivity extends AppCompatActivity {
 
 
     private void setupPerformanceSettings() {
+        ServiceRestartPolicy.migrateIfNeeded(sharedPreferences);
+
         // Persistent Notification Toggle
         MaterialSwitch persistentNotificationSwitch = binding.switchPersistentNotification;
         boolean persistentNotificationEnabled = sharedPreferences.getBoolean(getString(R.string.prefs_persistent_notification), false);
@@ -227,32 +234,37 @@ public class GeneralSettingsActivity extends AppCompatActivity {
         });
 
 
-        // Service Restart Policy
-        String restartPolicy = sharedPreferences.getString(getString(R.string.prefs_restart_policy), getString(R.string.restart_policy_never));
+        // Service Restart Policy (stored values are always English: never | crash | periodic)
+        String restartPolicy = ServiceRestartPolicy.readPolicy(sharedPreferences);
         switch (restartPolicy) {
-            case "never":
+            case ServiceRestartPolicy.VALUE_NEVER:
                 binding.radioRestartNever.setChecked(true);
                 break;
-            case "crash":
+            case ServiceRestartPolicy.VALUE_CRASH:
                 binding.radioRestartOnCrash.setChecked(true);
                 break;
-            case "periodic":
+            case ServiceRestartPolicy.VALUE_PERIODIC:
                 binding.radioRestartPeriodic.setChecked(true);
                 break;
+            default:
+                binding.radioRestartOnCrash.setChecked(true);
+                break;
         }
+        ServiceRestartPolicyScheduler.syncPeriodicWork(this, restartPolicy);
 
         binding.radioGroupRestartPolicy.setOnCheckedChangeListener((group, checkedId) -> {
             String policy;
             if (checkedId == R.id.radioRestartNever) {
-                policy = getString(R.string.restart_policy_never);
+                policy = ServiceRestartPolicy.VALUE_NEVER;
             } else if (checkedId == R.id.radioRestartOnCrash) {
-                policy = getString(R.string.restart_policy_crash);
+                policy = ServiceRestartPolicy.VALUE_CRASH;
             } else if (checkedId == R.id.radioRestartPeriodic) {
-                policy = getString(R.string.restart_policy_periodic);
+                policy = ServiceRestartPolicy.VALUE_PERIODIC;
             } else {
-                policy = getString(R.string.restart_policy_never);
+                policy = ServiceRestartPolicy.DEFAULT_POLICY;
             }
-            sharedPreferences.edit().putString(getString(R.string.prefs_restart_policy), policy).apply();
+            sharedPreferences.edit().putString(ServiceRestartPolicy.PREFS_KEY, policy).apply();
+            ServiceRestartPolicyScheduler.syncPeriodicWork(GeneralSettingsActivity.this, policy);
         });
     }
 
@@ -395,6 +407,12 @@ public class GeneralSettingsActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         syncBatteryOptimizationState();
+        if (permissionSyncSession != null) {
+            permissionSyncSession.onResume();
+            if (permissionSyncSession.isFinished()) {
+                permissionSyncSession = null;
+            }
+        }
     }
 
     private boolean checkStoragePermission() {
@@ -455,11 +473,20 @@ public class GeneralSettingsActivity extends AppCompatActivity {
             }
             
             // Import configuration
-            FilterConfigManager.ImportResult result = FilterConfigManager.importFullConfiguration(this, content.toString());
+            String importedJson = content.toString();
+            FilterConfigManager.ImportResult result = FilterConfigManager.importFullConfiguration(this, importedJson);
             
             if (result.success) {
                 Toast.makeText(this, String.format(getString(R.string.configuration_imported_successfully), result.message), Toast.LENGTH_LONG).show();
-                handleOptionalRulesImport(content.toString());
+                permissionSyncSession = PermissionSyncManager.startSync(
+                    this,
+                    true,
+                    null,
+                    () -> {
+                        permissionSyncSession = null;
+                        handleOptionalRulesImport(importedJson);
+                    }
+                );
             } else {
                 Toast.makeText(this, String.format(getString(R.string.import_failed), result.message), Toast.LENGTH_LONG).show();
             }
@@ -608,8 +635,13 @@ public class GeneralSettingsActivity extends AppCompatActivity {
                 // Permission denied
                 Toast.makeText(this, getString(R.string.notification_permission_denied), Toast.LENGTH_LONG).show();
             }
-        } else if (requestCode == REQUEST_RULES_IMPORT_PERMISSIONS) {
-            handleRulesImportPermissionsResult();
+        }
+
+        if (permissionSyncSession != null) {
+            permissionSyncSession.onRequestPermissionsResult(requestCode, permissions, grantResults);
+            if (permissionSyncSession.isFinished()) {
+                permissionSyncSession = null;
+            }
         }
     }
 
@@ -639,27 +671,29 @@ public class GeneralSettingsActivity extends AppCompatActivity {
             .setTitle(getString(R.string.rules_import_master_title))
             .setMessage(getString(R.string.rules_import_master_message, rules.size()))
             .setPositiveButton(getString(R.string.rules_import_master_confirm), (dialog, which) -> handleRulesImportWithPermissions(rules))
-            .setNegativeButton(getString(R.string.rules_import_master_skip), (dialog, which) -> recreate())
+            .setNegativeButton(getString(R.string.rules_import_master_skip), (dialog, which) -> {
+                recreate();
+            })
             .show();
     }
 
     private void handleRulesImportWithPermissions(List<Rule> rules) {
         EnumSet<RulePermissionType> required = RuleConfigManager.getRequiredPermissionTypes(rules);
-        List<String> missingPermissions = new ArrayList<>();
-
-        if (required.contains(RulePermissionType.BLUETOOTH) && !hasBluetoothPermissions()) {
-            missingPermissions.addAll(getBluetoothPermissions());
-        }
-        if (required.contains(RulePermissionType.WIFI) && !hasWifiPermissions()) {
-            missingPermissions.addAll(getWifiPermissions());
-        }
-
-        if (!missingPermissions.isEmpty()) {
-            pendingRulesImport = rules;
-            requestPermissions(missingPermissions.toArray(new String[0]), REQUEST_RULES_IMPORT_PERMISSIONS);
-        } else {
-            applyImportedRules(rules, 0);
-        }
+        permissionSyncSession = PermissionSyncManager.startSync(
+            this,
+            false,
+            rules,
+            () -> {
+                permissionSyncSession = null;
+                boolean allowBluetooth =
+                    !required.contains(RulePermissionType.BLUETOOTH) || PermissionCatalog.hasBluetoothPermissions(this);
+                boolean allowWifi =
+                    !required.contains(RulePermissionType.WIFI) || PermissionCatalog.hasAllWifiPermissions(this);
+                List<Rule> filtered = RuleConfigManager.filterRulesByPermissions(rules, allowBluetooth, allowWifi);
+                int skippedCount = rules.size() - filtered.size();
+                applyImportedRules(filtered, skippedCount);
+            }
+        );
     }
 
     private void handleRulesImportPermissionsResult() {

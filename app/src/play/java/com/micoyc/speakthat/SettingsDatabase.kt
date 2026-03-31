@@ -119,6 +119,20 @@ object SettingsDatabase {
                 navigationAction = { context.startActivity(Intent(context, BehaviorSettingsActivity::class.java)) }
             ),
             SettingsItem(
+                id = "earcon",
+                title = "Earcon",
+                description = "Play a short sound before readouts start",
+                category = "behavior",
+                categoryTitle = "Behavior Settings",
+                categoryIcon = "🔔",
+                settingType = SettingType.CARD,
+                searchKeywords = listOf(
+                    "earcon", "pre-speech", "pre speech", "cue", "click", "sound", "audio",
+                    "jarring", "notification", "readout", "tts", "before speak", "soft click", "custom sound"
+                ),
+                navigationAction = { context.startActivity(Intent(context, BehaviorSettingsActivity::class.java)) }
+            ),
+            SettingsItem(
                 id = "shake_to_stop",
                 title = "Shake to Stop",
                 description = "Stop notifications by shaking your device",
@@ -372,8 +386,8 @@ object SettingsDatabase {
                 categoryTitle = "Filter Settings",
                 categoryIcon = "🔍",
                 settingType = SettingType.SWITCH,
-                searchKeywords = listOf("media", "filter", "music", "video", "playback", "youtube", "spotify", "smart"),
-                navigationAction = { context.startActivity(Intent(context, FilterSettingsActivity::class.java)) }
+                searchKeywords = listOf("media", "filter", "music", "video", "playback", "youtube", "spotify", "smart", "compatibility", "legacy"),
+                navigationAction = { context.startActivity(Intent(context, CompatibilitySettingsActivity::class.java)) }
             ),
             SettingsItem(
                 id = "persistent_filtering",
@@ -441,29 +455,6 @@ object SettingsDatabase {
                 searchKeywords = listOf("system", "filter", "android", "os", "notification"),
                 navigationAction = { context.startActivity(Intent(context, FilterSettingsActivity::class.java)) }
             ),
-            SettingsItem(
-                id = "media_filter_excepted_apps",
-                title = "Media Filter Excepted Apps",
-                description = "Apps that are excepted from media filtering",
-                category = "filter",
-                categoryTitle = "Filter Settings",
-                categoryIcon = "🔍",
-                settingType = SettingType.CARD,
-                searchKeywords = listOf("media", "filter", "exception", "exempt", "app", "whitelist", "music", "video"),
-                navigationAction = { context.startActivity(Intent(context, FilterSettingsActivity::class.java)) }
-            ),
-            SettingsItem(
-                id = "media_filter_important_keywords",
-                title = "Media Filter Important Keywords",
-                description = "Keywords that make media notifications important",
-                category = "filter",
-                categoryTitle = "Filter Settings",
-                categoryIcon = "🔍",
-                settingType = SettingType.CARD,
-                searchKeywords = listOf("media", "filter", "keyword", "important", "exception", "music", "video"),
-                navigationAction = { context.startActivity(Intent(context, FilterSettingsActivity::class.java)) }
-            ),
-
             SettingsItem(
                 id = "export_filter_config",
                 title = "Export Filter Configuration",

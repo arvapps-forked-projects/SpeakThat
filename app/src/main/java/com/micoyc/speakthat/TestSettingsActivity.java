@@ -117,11 +117,11 @@ public class TestSettingsActivity extends AppCompatActivity {
         if (!isTtsReady) return;
         
         float speechRate = voicePrefs.getFloat("speech_rate", 1.0f);
-        float pitch = voicePrefs.getFloat("pitch", 1.0f);
+        float pitch = VoiceSettingsActivity.sanitizePitchForStorage(voicePrefs.getFloat("pitch", 1.0f));
         String language = voicePrefs.getString("language", "en_US");
         
         tts.setSpeechRate(speechRate);
-        tts.setPitch(pitch);
+        tts.setPitch(VoiceSettingsActivity.pitchForTtsEngine(pitch));
         
         // Set language
         String[] langParts = language.split("_");
@@ -207,7 +207,7 @@ public class TestSettingsActivity extends AppCompatActivity {
             boolean darkMode = mainPrefs.getBoolean("dark_mode", false);
             boolean autoStart = mainPrefs.getBoolean("auto_start_on_boot", false);
             boolean batteryOpt = mainPrefs.getBoolean("battery_optimization_disabled", false);
-            String restartPolicy = mainPrefs.getString("service_restart_policy", "periodic");
+            String restartPolicy = mainPrefs.getString("service_restart_policy", "crash");
             boolean dataExportEnabled = mainPrefs.getBoolean("data_export_enabled", false);
             boolean dataImportEnabled = mainPrefs.getBoolean("data_import_enabled", false);
             String backupFrequency = mainPrefs.getString("backup_frequency", "weekly");
@@ -265,10 +265,8 @@ public class TestSettingsActivity extends AppCompatActivity {
             boolean readNotificationText = mainPrefs.getBoolean("read_notification_text", true);
             int maxReadoutLength = mainPrefs.getInt("max_readout_length", 200);
             boolean waveToStop = mainPrefs.getBoolean("wave_to_stop_enabled", false);
-            float waveThresholdCm = mainPrefs.getFloat("wave_threshold", 3.0f);
             int waveTimeoutSeconds = mainPrefs.getInt("wave_timeout_seconds", 30);
-            SharedPreferences behaviorPrefs = getSharedPreferences("BehaviorSettings", MODE_PRIVATE);
-            float waveThresholdPercent = behaviorPrefs.getFloat("wave_threshold_percent", 60f);
+            int waveHoldMs = mainPrefs.getInt("wave_hold_duration_ms", 150);
             boolean honourDnd = mainPrefs.getBoolean("honour_do_not_disturb", true);
             boolean honourPhoneCalls = mainPrefs.getBoolean("honour_phone_calls", true);
             boolean honourSilentMode = mainPrefs.getBoolean("honour_silent_mode", true);
@@ -290,7 +288,8 @@ public class TestSettingsActivity extends AppCompatActivity {
             results.append("Read Text: ").append(readNotificationText ? "✅ Yes" : "❌ No").append("\n");
             results.append("Max Readout Length: ").append(maxReadoutLength).append(" chars\n");
             results.append("Wave to Stop: ").append(waveToStop ? "✅ Enabled" : "❌ Disabled").append("\n");
-            results.append("Wave Threshold: ").append(String.format(Locale.getDefault(), "%.1f cm (%.0f%%)", waveThresholdCm, waveThresholdPercent)).append("\n");
+            results.append("Wave detection: standard proximity (covered if reading < max range and < 5 cm)\n");
+            results.append("Wave Hold: ").append(waveHoldMs).append(" ms\n");
             results.append("Wave Timeout: ").append(waveTimeoutSeconds == 0 ? "Disabled" : waveTimeoutSeconds + "s").append("\n");
             results.append("Honour Do Not Disturb: ").append(honourDnd ? "✅ Yes" : "❌ No").append("\n");
             results.append("Honour Phone Calls: ").append(honourPhoneCalls ? "✅ Yes" : "❌ No").append("\n");
@@ -324,7 +323,7 @@ public class TestSettingsActivity extends AppCompatActivity {
             results.append("Private Apps: ").append(privateApps != null ? privateApps.size() : 0).append(" apps\n");
             results.append("Blocked Words: ").append(wordBlacklist != null ? wordBlacklist.size() : 0).append(" words\n");
             results.append("Private Words: ").append(privateWords != null ? privateWords.size() : 0).append(" words\n");
-            results.append("Word Swaps: ").append(wordReplacements.split("\\|").length - (wordReplacements.isEmpty() ? 0 : 1)).append(" swaps\n");
+            results.append("Word Swaps: ").append(WordReplacementsStorage.countSwaps(wordReplacements)).append(" swaps\n");
             results.append("Case Sensitive: ").append(caseSensitive ? "✅ Yes" : "❌ No").append("\n");
             results.append("Regex Enabled: ").append(regexEnabled ? "✅ Yes" : "❌ No").append("\n");
             results.append("Min Word Length: ").append(minWordLength).append(" chars\n");
@@ -362,7 +361,7 @@ public class TestSettingsActivity extends AppCompatActivity {
     private void testPerformanceImpact(StringBuilder results) {
         try {
             boolean batteryOpt = mainPrefs.getBoolean("battery_optimization_disabled", false);
-            String restartPolicy = mainPrefs.getString("service_restart_policy", "periodic");
+            String restartPolicy = mainPrefs.getString("service_restart_policy", "crash");
             int delayBeforeReadout = mainPrefs.getInt("delay_before_readout", 0);
             int maxReadoutLength = mainPrefs.getInt("max_readout_length", 200);
             Set<String> appList = mainPrefs.getStringSet("app_list", null);

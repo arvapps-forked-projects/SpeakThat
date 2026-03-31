@@ -19,6 +19,7 @@ import com.micoyc.speakthat.settings.sections.ContentCapSection;
 import com.micoyc.speakthat.settings.sections.CooldownSection;
 import com.micoyc.speakthat.settings.sections.CustomAppNamesSection;
 import com.micoyc.speakthat.settings.sections.DelaySection;
+import com.micoyc.speakthat.settings.sections.EarconSection;
 import com.micoyc.speakthat.settings.sections.GestureSection;
 import com.micoyc.speakthat.settings.sections.MediaBehaviorSection;
 import com.micoyc.speakthat.settings.sections.NotificationBehaviorSection;
@@ -35,6 +36,26 @@ public class BehaviorSettingsActivity extends AppCompatActivity {
     private GestureSection gestureSection;
     private CooldownSection cooldownSection;
     private RespectModesSection respectModesSection;
+    private EarconSection earconSection;
+
+    /**
+     * True after the user turns on Honour DND without notification-policy access and we sent them
+     * to system settings; consumed in {@link #onResume()}.
+     */
+    private boolean awaitingNotificationPolicyAccess = false;
+
+    public void setAwaitingNotificationPolicyAccess(boolean awaiting) {
+        this.awaitingNotificationPolicyAccess = awaiting;
+    }
+
+    /**
+     * Clears and returns whether we were waiting for the user to grant notification policy access.
+     */
+    public boolean takeAwaitingNotificationPolicyAccess() {
+        boolean v = awaitingNotificationPolicyAccess;
+        awaitingNotificationPolicyAccess = false;
+        return v;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -117,6 +138,7 @@ public class BehaviorSettingsActivity extends AppCompatActivity {
         MediaBehaviorSection mediaBehaviorSection =
             new MediaBehaviorSection(this, binding, store);
         DelaySection delaySection = new DelaySection(this, binding, store);
+        earconSection = new EarconSection(this, binding, store);
         ContentCapSection contentCapSection = new ContentCapSection(this, binding, store);
         CustomAppNamesSection customAppNamesSection =
             new CustomAppNamesSection(this, binding, store);
@@ -129,6 +151,7 @@ public class BehaviorSettingsActivity extends AppCompatActivity {
         sections.add(gestureSection);
         sections.add(mediaBehaviorSection);
         sections.add(delaySection);
+        sections.add(earconSection);
         sections.add(contentCapSection);
         sections.add(customAppNamesSection);
         sections.add(cooldownSection);
@@ -160,6 +183,12 @@ public class BehaviorSettingsActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         InAppLogger.logAppLifecycle("Behaviour Settings resumed", "BehaviorSettingsActivity");
+        if (respectModesSection != null) {
+            respectModesSection.onHostResume();
+        }
+        if (earconSection != null) {
+            earconSection.onHostResume();
+        }
     }
 
     @Override
@@ -169,14 +198,6 @@ public class BehaviorSettingsActivity extends AppCompatActivity {
         }
         super.onDestroy();
         binding = null;
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (gestureSection != null) {
-            gestureSection.onActivityResult(requestCode, resultCode, data);
-        }
     }
 
     @Override
@@ -192,26 +213,22 @@ public class BehaviorSettingsActivity extends AppCompatActivity {
     }
 
     public static boolean isDoNotDisturbEnabled(Context context) {
-        AudioManager audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-        if (audioManager != null) {
-            if (audioManager.getRingerMode() == AudioManager.RINGER_MODE_SILENT) {
-                return true;
-            }
-
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                try {
-                    android.app.NotificationManager notificationManager =
-                        (android.app.NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-                    if (notificationManager != null) {
-                        int currentInterruptionFilter = notificationManager.getCurrentInterruptionFilter();
-                        return currentInterruptionFilter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL;
-                    }
-                } catch (SecurityException e) {
-                    Log.d("BehaviorSettings", "No permission to check DND status, using ringer mode fallback");
-                }
-            }
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M) {
+            // Interruption filter API is API 23+; DND state cannot be read reliably on older releases.
+            return false;
         }
-        return false;
+        try {
+            android.app.NotificationManager notificationManager =
+                (android.app.NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (notificationManager == null) {
+                return false;
+            }
+            int currentInterruptionFilter = notificationManager.getCurrentInterruptionFilter();
+            return currentInterruptionFilter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL;
+        } catch (SecurityException e) {
+            Log.d("BehaviorSettings", "No permission to check DND status (notification policy access)");
+            return false;
+        }
     }
 
     public static boolean shouldHonourDoNotDisturb(Context context) {

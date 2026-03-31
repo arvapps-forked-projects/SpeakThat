@@ -23,7 +23,6 @@ public class BehaviorSettingsStore {
     public static final String KEY_SHAKE_THRESHOLD = "shake_threshold";
     public static final String KEY_SHAKE_TIMEOUT_SECONDS = "shake_timeout_seconds";
     public static final String KEY_WAVE_TO_STOP_ENABLED = "wave_to_stop_enabled";
-    public static final String KEY_WAVE_THRESHOLD = "wave_threshold";
     public static final String KEY_WAVE_TIMEOUT_SECONDS = "wave_timeout_seconds";
     public static final String KEY_WAVE_HOLD_DURATION_MS = "wave_hold_duration_ms";
     public static final String KEY_PRESS_TO_STOP_ENABLED = "press_to_stop_enabled";
@@ -31,6 +30,25 @@ public class BehaviorSettingsStore {
     public static final String KEY_MEDIA_BEHAVIOR = "media_behavior";
     public static final String KEY_DUCKING_VOLUME = "ducking_volume";
     public static final String KEY_DELAY_BEFORE_READOUT = "delay_before_readout";
+    /**
+     * Stored values (see {@code behavior_earcon_mode_values}): {@link #EARCON_NONE},
+     * {@link #EARCON_DIGITAL_BEEP}, {@link #EARCON_ANDROID_TAP}, {@link #EARCON_SOFT_CLICK},
+     * {@link #EARCON_HARD_CLICK}, {@link #EARCON_REVERB_TAP}, {@link #EARCON_SQUEAK},
+     * {@link #EARCON_SOFT_PLOP}, {@link #EARCON_HARD_PLOP}, {@link #EARCON_SOFT_POP},
+     * {@link #EARCON_HARD_POP}.
+     */
+    public static final String KEY_EARCON_MODE = "pref_speakthat_earcon_mode";
+    public static final String EARCON_NONE = "earcon_none";
+    public static final String EARCON_DIGITAL_BEEP = "earcon_digital_beep";
+    public static final String EARCON_ANDROID_TAP = "earcon_android_tap";
+    public static final String EARCON_SOFT_CLICK = "earcon_soft_click";
+    public static final String EARCON_HARD_CLICK = "earcon_hard_click";
+    public static final String EARCON_REVERB_TAP = "earcon_reverb_tap";
+    public static final String EARCON_SQUEAK = "earcon_squeak";
+    public static final String EARCON_SOFT_PLOP = "earcon_soft_plop";
+    public static final String EARCON_HARD_PLOP = "earcon_hard_plop";
+    public static final String EARCON_SOFT_POP = "earcon_soft_pop";
+    public static final String EARCON_HARD_POP = "earcon_hard_pop";
     public static final String KEY_CUSTOM_APP_NAMES = "custom_app_names";
     public static final String KEY_COOLDOWN_APPS = "cooldown_apps";
     public static final String KEY_HONOUR_DO_NOT_DISTURB = "honour_do_not_disturb";
@@ -50,12 +68,7 @@ public class BehaviorSettingsStore {
     public static final String KEY_SPEECH_TEMPLATE = "speech_template";
     public static final String KEY_SPEECH_TEMPLATE_KEY = SpeechTemplateConstants.KEY_SPEECH_TEMPLATE_KEY;
 
-    // Calibration prefs keys
     public static final String PREFS_BEHAVIOR_SETTINGS = "BehaviorSettings";
-    public static final String KEY_WAVE_THRESHOLD_PERCENT = "wave_threshold_percent";
-    public static final String KEY_SENSOR_MAX_RANGE = "sensor_max_range_v1";
-    public static final String KEY_WAVE_THRESHOLD_V1 = "wave_threshold_v1";
-    public static final String KEY_CALIBRATION_TIMESTAMP = "calibration_timestamp_v1";
 
     public static final String KEY_DUCKING_FALLBACK_STRATEGY = "ducking_fallback_strategy";
 
@@ -63,6 +76,7 @@ public class BehaviorSettingsStore {
     public static final String DEFAULT_NOTIFICATION_BEHAVIOR = "smart";
     public static final int DEFAULT_DUCKING_VOLUME = 30;
     public static final int DEFAULT_DELAY_BEFORE_READOUT = 2;
+    public static final String DEFAULT_EARCON_MODE = EARCON_NONE;
     public static final boolean DEFAULT_HONOUR_DO_NOT_DISTURB = true;
     public static final boolean DEFAULT_HONOUR_PHONE_CALLS = false;
     public static final boolean DEFAULT_HONOUR_SILENT_MODE = true;

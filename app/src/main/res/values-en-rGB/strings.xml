@@ -150,7 +150,7 @@ This feature is especially loved by people who get notifications during meetings
 
     <!-- Wave to Stop Feature -->
     <string name="wave_to_stop_dialog_title">Wave to Stop Feature</string>
-    <string name="wave_to_stop_dialog_message">Wave to Stop lets you instantly silence SpeakThat by waving your hand in front of the device:
+    <string name="wave_to_stop_dialog_message">Wave to Stop lets you instantly silence SpeakThat by covering the proximity sensor (for example by waving your hand close to the top of the device):
 
 <b> Why it\'s helpful:</b>
 • Perfect for users who can\'t shake their device
@@ -160,16 +160,13 @@ This feature is especially loved by people who get notifications during meetings
 • Accessibility-friendly alternative to shake
 
 <b>🎯 How it works:</b>
-• Wave your hand in front of the device (like a magic gesture)
-• Uses the proximity sensor to detect hand movement
-• Current notification stops immediately
-• Queued notifications are cleared
-• New notifications work normally
+• Uses the standard Android proximity sensor: the sensor is treated as covered when the reading is closer than the sensor\'s max range and within about 5 cm
+• You can set how long the sensor must stay covered (wave hold) before it triggers
+• A timeout can still stop a stuck readout for battery safety
+• Pocket mode can allow readouts to continue if the sensor was already covered when the readout started—see behaviour settings for details
 
 <b>⚙️ Customization:</b>
-• Adjust sensitivity for your preference
-• Test your wave detection with the meter
-• Works great for different hand sizes and distances
+• Wave hold duration, timeout, and pocket mode in Behaviour settings
 
 This feature is especially useful for accessibility, desk users, and anyone who prefers gesture control over physical movement.</string>
 
@@ -548,7 +545,7 @@ This feature is especially useful for accessibility, desk users, and anyone who 
 
     <!-- Language Change Dialog -->
     <string name="dialog_title_language_changed">Language Changed</string>
-    <string name="dialog_message_language_changed">The app language has been changed from %1$s to %2$s.\n\n• Apply Now: Updates this screen immediately\n• Restart App: Ensures all screens and services use the new language\n\nFor the best experience, we recommend restarting the app.</string>
+    <string name="dialog_message_language_changed">The app language has been changed from %1$s to %2$s.\n\n• Apply Now: Updates this screen immediately\n• Restart App: Ensures all screens and services use the new language\n\nFor the best experience, I recommend restarting the app.</string>
     <string name="button_restart_app">Restart App</string>
     <string name="button_apply_now">Apply Now</string>
     <string name="toast_language_restarting">Restarting app with new language...</string>
@@ -667,6 +664,40 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="behavior_delay_2s">2 seconds (Recommended)</string>
     <string name="behavior_delay_3s">3 seconds</string>
     <string name="behavior_delay_benefits">Benefits:\n\n• Avoids overlap with notification sounds\n• Gives you time to shake-to-cancel\n• Less jarring in quiet environments\n• Perfect for meetings and public spaces</string>
+    <string name="behavior_earcon_title">Earcon</string>
+    <string name="behavior_earcon_description">Play a sound before speech is started. This can be helpful if you find the sudden speech a little jarring. This is also helpful if you find readouts seem to be starting mid-sentence.</string>
+    <string name="behavior_earcon_spinner_hint">It\'s not uncommon for the earcon to be occasionally skipped or missed by your hardware.</string>
+    <string name="behavior_earcon_preview">Preview Earcon</string>
+    <string name="behavior_earcon_preview_none">Select a sound above to preview an earcon.</string>
+    <string name="behavior_earcon_delay_disclaimer">Playing a sound will naturally add a minor delay (approx. 1s) before the readout begins.</string>
+    <string name="behavior_earcon_engine_warning">⚠️ Your current text-to-speech engine may not support custom sounds. If you hear no sound, ask the developer of your speech engine to include earcon support.</string>
+    <string name="behavior_earcon_operation_failed">Could not complete that action. Please try again.</string>
+    <string-array name="behavior_earcon_modes">
+        <item>None</item>
+        <item>Digital Beep</item>
+        <item>Android Tap</item>
+        <item>Soft Click</item>
+        <item>Hard Click</item>
+        <item>Reverb Tap</item>
+        <item>Squeak</item>
+        <item>Soft Plop</item>
+        <item>Hard Plop</item>
+        <item>Soft Pop</item>
+        <item>Hard Pop</item>
+    </string-array>
+    <string-array name="behavior_earcon_mode_values" translatable="false">
+        <item>earcon_none</item>
+        <item>earcon_digital_beep</item>
+        <item>earcon_android_tap</item>
+        <item>earcon_soft_click</item>
+        <item>earcon_hard_click</item>
+        <item>earcon_reverb_tap</item>
+        <item>earcon_squeak</item>
+        <item>earcon_soft_plop</item>
+        <item>earcon_hard_plop</item>
+        <item>earcon_soft_pop</item>
+        <item>earcon_hard_pop</item>
+    </string-array>
     <string name="behavior_cooldown_title">Notification Cooldown</string>
     <string name="behavior_cooldown_description">Prevent apps from having multiple notifications read within a specified time period</string>
     <string name="behavior_cooldown_recommendation">Great for: Apps that spam notifications</string>
@@ -722,8 +753,6 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="label_2_0x">2.0x</string>
     <string name="label_0_percent">0%</string>
     <string name="label_100_percent">100%</string>
-    <string name="label_150_percent">150%</string>
-    <string name="voice_tts_volume_boost_warning">⚠️ Volume above 100% may cause audio distortion &amp; doesn\'t work on every device</string>
     <string name="arrow_right">›</string>
 
     <!-- Main Activity Strings -->
@@ -745,6 +774,64 @@ This feature is especially useful for accessibility, desk users, and anyone who 
     <string name="settings_filter_description">Choose which apps to read</string>
     <string name="settings_rules_title">Conditional Rules</string>
     <string name="settings_rules_description">Configure Bluetooth, time schedules, etc</string>
+    <string name="settings_summary_title">Summary Settings</string>
+    <string name="settings_summary_description">Tweak SpeakThat\'s notification summaries</string>
+    <string name="settings_clock_title">Clock Settings</string>
+    <string name="settings_clock_description">Enable and customise time announcements</string>
+    <string name="clock_settings_master_header">SpeakThat! Clock</string>
+    <string name="clock_settings_master_description">Announce the time at the interval you choose. Respects the same filters and Conditional Rule behaviour as notification readouts.</string>
+    <string name="tip_speakthat_clock">SpeakThat\'s time announcements follow the same rules and filters as all other notifications!</string>
+    <string name="clock_settings_master_row_title">Enable Time Announcements</string>
+    <string name="clock_settings_master_row_subtitle">When on, the app listens for each minute tick and speaks at your chosen interval.</string>
+    <string name="clock_settings_interval_header">Announcement Interval</string>
+    <string name="clock_settings_interval_description">How often to announce the time when the clock is enabled.</string>
+    <string name="clock_settings_interval_15_title">Every 15 minutes</string>
+    <string name="clock_settings_interval_15_subtitle">At :00, :15, :30, and :45 past each hour.</string>
+    <string name="clock_settings_interval_30_title">Every 30 minutes</string>
+    <string name="clock_settings_interval_30_subtitle">At :00 and :30 past each hour.</string>
+    <string name="clock_settings_interval_60_title">Every hour</string>
+    <string name="clock_settings_interval_60_subtitle">On the hour only.</string>
+    <string name="clock_settings_interval_180_title">Every 3 hours</string>
+    <string name="clock_settings_interval_180_subtitle">On the hour at 03:00, 06:00, 09:00, and 12:00.</string>
+    <string name="clock_settings_template_title">Speech Format</string>
+    <string name="clock_settings_template_desc">Use the placeholder {time} where the current time should be spoken. The time uses your system\'s locale and 12/24-hour setting. You can also include {batt} for the current battery percentage (0–100).</string>
+    <string name="clock_settings_template_hint">Enter your speech format</string>
+    <string name="clock_settings_precision_header">Precision Timing</string>
+    <string name="clock_settings_precision_description">Enable this if you find SpeakThat misses some announcements. Uses a little more battery.</string>
+    <string name="clock_settings_precision_row_title">Exact alarm mode</string>
+    <string name="clock_settings_precision_row_subtitle">Requires permission to schedule exact alarms on Android 12 and newer.</string>
+    <string name="clock_settings_exact_alarm_permission_toast">Exact alarm permission is required for precision timing. Opening Settings so you can allow it for SpeakThat.</string>
+    <string name="clock_settings_doze_disclaimer">To save power, Android may occasionally delay clock announcements by a minute or two when your phone is resting.</string>
+    <string name="summary_settings_back">Go back</string>
+    <string name="summary_settings_master_toggle_title">Enable Summaries</string>
+    <string name="summary_settings_master_toggle_subtitle">Master control for all summary triggers. Requires overlay permission.</string>
+    <string name="summary_settings_master_toggle_row_subtitle">When off, scheduled and manual summary triggers are blocked.</string>
+    <string name="summary_settings_permission_title">Overlay Permission</string>
+    <string name="summary_settings_permission_subtitle">Required to display summary cards over your screen.</string>
+    <string name="summary_settings_permission_granted">Overlay permission granted.</string>
+    <string name="summary_settings_grant_permission">Grant Overlay Permission</string>
+    <string name="summary_settings_schedule_time">Daily Scheduler</string>
+    <string name="summary_settings_schedule_subtitle">Schedule one summary readout per day at your selected time.</string>
+    <string name="summary_settings_scheduler_toggle_title">Enable Daily Scheduler</string>
+    <string name="summary_settings_scheduler_toggle_subtitle">Stores your preference and runs only when summaries are globally enabled.</string>
+    <string name="summary_settings_scheduler_run_time">Run Time</string>
+    <string name="summary_settings_default_time">08:00 AM</string>
+    <string name="summary_settings_order_title">Notification Order</string>
+    <string name="summary_settings_order_subtitle">Choose whether summaries read notifications from oldest to newest or newest to oldest.</string>
+    <string name="summary_settings_order_spinner_label">Read notifications</string>
+    <string name="summary_settings_order_oldest_first">Oldest first</string>
+    <string name="summary_settings_order_newest_first">Newest first</string>
+    <string name="summary_settings_greeting_name">Greeting Name</string>
+    <string name="summary_settings_greeting_name_subtitle">Set the name SpeakThat will use when starting a summary to read active notifications.</string>
+    <string name="summary_settings_speech_pacing">Speech Pacing</string>
+    <string name="summary_settings_speech_pacing_subtitle">Set the gap between one notification being read and the next during summaries.</string>
+    <string name="summary_settings_pacing_value">2 sec</string>
+    <string name="summary_settings_pacing_value_format">%1$d sec</string>
+    <string name="summary_settings_pacing_min">0s</string>
+    <string name="summary_settings_pacing_max">5s</string>
+    <string name="summary_trigger_blocked_globally">Summaries are disabled or missing overlay permission.</string>
+    <string name="summary_action_start_title">Start summary</string>
+    <string name="summary_quick_strings_source_hint">Optional: an \"Extra\" slot can be used to identify the automation in debug logs. Set the parameter name to \"source\", and the value to a key identifier of your choosing (e.g. \"start-summary-when-charging\") so you can tell which profile triggered the summary.</string>
     <string name="settings_compatibility_title">Compatibility Settings</string>
     <string name="settings_compatibility_description">Fixes for common device-related issues</string>
     <string name="compatibility_section_audio_routing">Android Audio Routing</string>
@@ -1066,7 +1153,7 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="url_handling_custom_text_description">What to say instead of URLs (leave empty to omit entirely)</string>
     <string name="url_handling_custom_text_hint">e.g., \'web link\', \'link to site\', or leave blank to omit</string>
 
-    <string name="filter_media_description">Automatically filter notifications for apps like YouTube that have both unwanted notifications (media controls) while allowing wanted notifications (like replies to your comments)</string>
+    <string name="filter_media_description">Primarily for older Android versions. Attempts to detect and block media playback notifications that appear as standard notifications (session extras, progress bar, or media category). No per-app lists.</string>
     <string name="filter_media_enable">Enable smart media notification filtering</string>
     <string name="filter_media_apps_title">Filtered Media Apps:</string>
     <string name="filter_media_apps_description">Apps that are automatically filtered for media notifications. Add media apps you want to filter out.</string>
@@ -1356,6 +1443,23 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="onboarding_system_check_failure_card_description">SpeakThat didn\'t read the test notification.\n\n%1$s\n\nYou can continue the setup, but you might find SpeakThat isn\'t ready to function just yet.\n\nFeel free to contact me if you need help getting the app working.</string>
     <string name="onboarding_system_check_failure_permission_denied">You denied the notification permission.</string>
     <string name="onboarding_system_check_failure_test_skipped">The test was skipped.</string>
+    <string name="onboarding_system_check_retry">Retry</string>
+    <string name="onboarding_system_check_failure_category_post_notifications">Notification permission denied</string>
+    <string name="onboarding_system_check_failure_category_notification_access">Notification access required</string>
+    <string name="onboarding_system_check_failure_category_master_switch">SpeakThat is off</string>
+    <string name="onboarding_system_check_failure_category_volume">Volume too low</string>
+    <string name="onboarding_system_check_failure_category_sound_mode">Blocked by sound mode</string>
+    <string name="onboarding_system_check_failure_category_post_failed">Could not show test notification</string>
+    <string name="onboarding_system_check_failure_category_not_received">Notification not received</string>
+    <string name="onboarding_system_check_failure_category_no_audio_heard">No audio heard</string>
+    <string name="onboarding_system_check_failure_category_dnd">Blocked by Do Not Disturb</string>
+    <string name="onboarding_system_check_failure_category_rule">Blocked by a rule</string>
+    <string name="onboarding_system_check_failure_category_filter">Blocked by a filter</string>
+    <string name="onboarding_system_check_failure_category_duplicate">Blocked by duplicate detection</string>
+    <string name="onboarding_system_check_failure_category_dismissal">Blocked by dismissal memory</string>
+    <string name="onboarding_system_check_failure_category_tts">Text-to-speech issue</string>
+    <string name="onboarding_system_check_failure_category_test_interrupted">Test interrupted</string>
+    <string name="onboarding_system_check_failure_category_unknown">Something went wrong</string>
 
     <!-- TTS String for Page 5 -->
     <string name="tts_onboarding_system_check">Quick System Check. SpeakThat will quickly verify that it is ready to run on your device. SpeakThat will send a test notification and read it out to ensure it is working on your device. This is just a quick check. You will be able to choose what gets read next.</string>
@@ -1527,7 +1631,7 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="wave_calibration_ready">Ready to calibrate wave detection</string>
     <string name="wave_calibration_threshold">Threshold: 3.2cm (60% of 5.3cm)</string>
     <string name="wave_calibration_how_it_works">💡 How it works:</string>
-    <string name="wave_calibration_instructions">• Move your hand closer and farther from the sensor for 8 seconds\n• We\'ll record sensor readings every 50ms\n• Need at least 20 readings for calibration\n• Set threshold to 60% of maximum distance detected</string>
+    <string name="wave_calibration_instructions">• Move your hand closer and farther from the sensor for 8 seconds\n• I\'ll record sensor readings every 50ms\n• Need at least 20 readings for calibration\n• Set threshold to 60% of maximum distance detected</string>
     <string name="wave_calibration_start">Start Calibration</string>
 
 
@@ -1867,6 +1971,11 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="reading_notification_enabled">Reading notification enabled</string>
     <string name="notification_while_reading_enabled">Notification while reading enabled</string>
     <string name="notification_permission_required">Notification permission required</string>
+
+    <string name="permissions_required_title">Permissions Required</string>
+    <string name="permissions_required_message">To apply the imported settings, SpeakThat needs the following permissions/features enabled:</string>
+    <string name="permissions_required_enable">Enable</string>
+    <string name="permissions_required_not_now">Not now</string>
     <string name="notification_permission_denied">Notification permission denied - feature will not work</string>
 
     <!-- AppAutoCompleteAdapter Hardcoded Strings -->
@@ -2336,7 +2445,7 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="loading_line_8">Never say never…</string>
     <string name="loading_line_9">Concentration face…</string>
     <string name="loading_line_10">Loading the crap…</string>
-    <string name="loading_line_11">But I don\'t want to get up…</string>
+    <string name="loading_line_11">Loading the loading screens…</string>
     <string name="loading_line_12">Getting older by the second…</string>
     <string name="loading_line_13">Warming up the vocal cords…</string>
     <string name="loading_line_14">Just a sec…</string>
@@ -2441,5 +2550,31 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="support_email_subject_feature">SpeakThat! Feature Request</string>
     <string name="support_email_subject_bug">SpeakThat! Bug Report</string>
     <string name="support_email_subject_question">SpeakThat! Support</string>
+
+    <!-- summary overlay -->
+    <string name="summary_overlay_dismiss">Dismiss summary overlay</string>
+    <string name="summary_overlay_image">Notification preview image</string>
+    <string name="summary_overlay_sender_fallback">Nothing to see here</string>
+    <string name="summary_overlay_empty_message">No active notifications available right now.</string>
+    <string name="summary_service_preparing">Summary in progress...</string>
+    <string name="summary_service_action_stop">Stop summary</string>
+    <string name="summary_service_action_skip">Skip current notification</string>
+    <string name="summary_tts_day_period_morning">morning</string>
+    <string name="summary_tts_day_period_afternoon">afternoon</string>
+    <string name="summary_tts_day_period_evening">evening</string>
+    <string name="summary_tts_intro_template">Good %1$s, %2$s. It is %3$s, and your battery level is %4$d percent. %5$s</string>
+    <string name="summary_tts_no_notifications">No active notifications to read right now.</string>
+    <string name="summary_tts_relative_time_fallback">a moment ago</string>
+    <string name="summary_tts_item_template">%1$s. %2$s. %3$s</string>
+    <plurals name="summary_tts_notification_count">
+        <item quantity="one">You only have %d notification.</item>
+        <item quantity="other">You have %d notifications.</item>
+    </plurals>
+
+    <!-- Dummy strings. Leave these in the app release if you're a dummy -->
+    <string name="placeholder_string">Placeholder string. Don\'t forget to remove this.</string>
+
+    <!-- Shown when a clock/timer notification has no standard text but appears to be firing -->
+    <string name="fallback_timer_complete">Timer or alarm complete</string>
 
 </resources>

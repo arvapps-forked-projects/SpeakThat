@@ -56,9 +56,16 @@
     
     <!-- Permission to use text-to-speech -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Permission to draw overlay UI for summaries -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     
     <!-- Permission for foreground service media playback (Android 14+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <!-- Permission for exact summary scheduling -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
 
 
@@ -77,6 +84,9 @@
 
     <!-- Permission to detect phone calls for Honour Phone Calls feature -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
+    <!-- Read Do Not Disturb / interruption filter for Honour Do Not Disturb -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
     <!-- Conditional filtering permissions -->
     <!-- Location permissions are required for Bluetooth scanning and WiFi SSID detection -->
@@ -122,6 +132,15 @@
         <activity
             android:name=".SettingsActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".summary.SummarySettingsActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ClockSettingsActivity"
+            android:exported="false"
+            android:parentActivityName=".SettingsActivity" />
 
         <activity
             android:name=".SupportActivity"
@@ -209,11 +228,6 @@
             android:parentActivityName=".GeneralSettingsActivity" />
 
         <activity
-            android:name=".WaveCalibrationActivity"
-            android:exported="false"
-            android:parentActivityName=".settings.BehaviorSettingsActivity" />
-
-        <activity
             android:name=".AboutActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity" />
@@ -250,6 +264,12 @@
         <!-- Foreground host for the persistent notification indicator -->
         <service
             android:name=".PersistentIndicatorService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <!-- Foreground service host for summaries -->
+        <service
+            android:name=".summary.SummaryExecutionService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 
@@ -290,6 +310,17 @@
             <intent-filter>
                 <action android:name="com.micoyc.speakthat.intent.ACTION_ENABLE_SPEAKTHAT" />
                 <action android:name="com.micoyc.speakthat.intent.ACTION_DISABLE_SPEAKTHAT" />
+            </intent-filter>
+        </receiver>
+
+        <!-- BroadcastReceiver for external and scheduled summary triggers -->
+        <receiver
+            android:name=".summary.SummaryTriggerReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.micoyc.speakthat.ACTION_TRIGGER_SUMMARY" />
+                <action android:name="com.micoyc.speakthat.ACTION_SUMMARY_ALARM" />
             </intent-filter>
         </receiver>
 

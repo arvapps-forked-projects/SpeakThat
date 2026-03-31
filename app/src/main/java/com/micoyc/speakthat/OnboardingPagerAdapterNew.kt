@@ -19,6 +19,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
+import androidx.annotation.StringRes
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
@@ -59,7 +60,18 @@ class OnboardingPagerAdapterNew : RecyclerView.Adapter<RecyclerView.ViewHolder>(
     
     // Callback to stop TTS
     var onStopTts: (() -> Unit)? = null
-    
+
+    /**
+     * When true, [OnboardingActivity] must not auto-speak the system-check page (index 4).
+     * Set when the user starts the quick test; cleared when leaving that page.
+     */
+    var suppressAutoTtsForSystemCheckPage: Boolean = false
+        private set
+
+    fun clearSystemCheckAutoTtsSuppression() {
+        suppressAutoTtsForSystemCheckPage = false
+    }
+
     // Callback to skip to a specific page
     var onSkipToPage: ((pageIndex: Int) -> Unit)? = null
     
@@ -408,6 +420,11 @@ class OnboardingPagerAdapterNew : RecyclerView.Adapter<RecyclerView.ViewHolder>(
             binding.buttonFeedbackNo.setOnClickListener {
                 onUserReportedFailure()
             }
+            
+            binding.buttonRetrySystemCheck.setOnClickListener {
+                selfTestHelper.cancelTestNotification()
+                requestPermissionAndStartTest()
+            }
         }
         
         private fun showIntroState() {
@@ -462,16 +479,18 @@ class OnboardingPagerAdapterNew : RecyclerView.Adapter<RecyclerView.ViewHolder>(
             InAppLogger.log("OnboardingSystemCheck", "Showing feedback state")
         }
         
-        private fun showFailureState(reason: String) {
+        private fun showFailureState(reasonDetail: String, @StringRes categoryLabelRes: Int) {
             binding.layoutStateIntro.visibility = View.GONE
             binding.layoutStateTesting.visibility = View.GONE
             binding.layoutStateFeedback.visibility = View.GONE
             binding.layoutStateFailure.visibility = View.VISIBLE
             
-            // Format the failure description with the reason
-            val description = binding.root.context.getString(
+            val ctx = binding.root.context
+            binding.textFailureCategory.text = ctx.getString(categoryLabelRes)
+            
+            val description = ctx.getString(
                 R.string.onboarding_system_check_failure_card_description,
-                reason
+                reasonDetail
             )
             binding.textFailureReason.text = description
             
@@ -486,13 +505,17 @@ class OnboardingPagerAdapterNew : RecyclerView.Adapter<RecyclerView.ViewHolder>(
             // Save failure to SharedPreferences
             saveTestResult(false)
             
-            InAppLogger.log("OnboardingSystemCheck", "Showing failure state: $reason")
+            InAppLogger.log(
+                "OnboardingSystemCheck",
+                "Showing failure state [${ctx.getString(categoryLabelRes)}]: $reasonDetail"
+            )
         }
         
         private fun requestPermissionAndStartTest() {
             val context = binding.root.context
             
-            // Stop any ongoing TTS first
+            // Stop any ongoing TTS first; suppress resume/page auto-TTS until user leaves system check
+            suppressAutoTtsForSystemCheckPage = true
             onStopTts?.invoke()
             InAppLogger.log("OnboardingSystemCheck", "Stopped TTS before starting test")
             
@@ -512,7 +535,10 @@ class OnboardingPagerAdapterNew : RecyclerView.Adapter<RecyclerView.ViewHolder>(
                         // Test will be started in onPermissionResult callback
                     } else {
                         InAppLogger.logError("OnboardingSystemCheck", "Cannot request permission: context is not OnboardingActivity")
-                        showFailureState(binding.root.context.getString(R.string.onboarding_system_check_failure_permission_denied))
+                        showFailureState(
+                            binding.root.context.getString(R.string.onboarding_system_check_failure_permission_denied),
+                            R.string.onboarding_system_check_failure_category_post_notifications
+                        )
                     }
                     return
                 }
@@ -528,11 +554,15 @@ class OnboardingPagerAdapterNew : RecyclerView.Adapter<RecyclerView.ViewHolder>(
                 startSystemCheck()
             } else {
                 InAppLogger.log("OnboardingSystemCheck", "POST_NOTIFICATIONS permission denied")
-                showFailureState(binding.root.context.getString(R.string.onboarding_system_check_failure_permission_denied))
+                showFailureState(
+                    binding.root.context.getString(R.string.onboarding_system_check_failure_permission_denied),
+                    R.string.onboarding_system_check_failure_category_post_notifications
+                )
             }
         }
         
         private fun startSystemCheck() {
+            onStopTts?.invoke()
             InAppLogger.log("OnboardingSystemCheck", "=== SYSTEM CHECK STARTED ===")
             showTestingState()
             
@@ -547,7 +577,10 @@ class OnboardingPagerAdapterNew : RecyclerView.Adapter<RecyclerView.ViewHolder>(
             advanceProgress("Checking notification access")
             val activity = context as? OnboardingActivity
             if (activity == null || !activity.isNotificationServiceEnabled()) {
-                showFailureState("SpeakThat doesn't have notification access. Please grant notification access on the previous page.")
+                showFailureState(
+                    "SpeakThat doesn't have notification access. Please grant notification access on the previous page.",
+                    R.string.onboarding_system_check_failure_category_notification_access
+                )
                 return
             }
             
@@ -559,7 +592,10 @@ class OnboardingPagerAdapterNew : RecyclerView.Adapter<RecyclerView.ViewHolder>(
                 val prefs = context.getSharedPreferences("SpeakThatPrefs", android.content.Context.MODE_PRIVATE)
                 val masterEnabled = prefs.getBoolean("master_switch_enabled", true)
                 if (!masterEnabled) {
-                    showFailureState("SpeakThat's master switch is turned off. Please enable it in settings.")
+                    showFailureState(
+                        "SpeakThat's master switch is turned off. Please enable it in settings.",
+                        R.string.onboarding_system_check_failure_category_master_switch
+                    )
                     return@postDelayed
                 }
                 
@@ -576,7 +612,10 @@ class OnboardingPagerAdapterNew : RecyclerView.Adapter<RecyclerView.ViewHolder>(
                     
                     if (currentVolume == 0) {
                         val streamName = getStreamTypeName(streamType)
-                        showFailureState("Your $streamName volume is turned down. Please turn up your volume and try again.")
+                        showFailureState(
+                            "Your $streamName volume is turned down. Please turn up your volume and try again.",
+                            R.string.onboarding_system_check_failure_category_volume
+                        )
                         return@postDelayed
                     }
                     
@@ -591,7 +630,10 @@ class OnboardingPagerAdapterNew : RecyclerView.Adapter<RecyclerView.ViewHolder>(
                         
                         if ((ringerMode == android.media.AudioManager.RINGER_MODE_SILENT && honorSilent) ||
                             (ringerMode == android.media.AudioManager.RINGER_MODE_VIBRATE && honorVibrate)) {
-                            showFailureState("Your phone is in Silent or Vibrate mode. Please switch to normal mode or disable 'Honor Audio Mode' in settings.")
+                            showFailureState(
+                                "Your phone is in Silent or Vibrate mode. Please switch to normal mode or disable 'Honor Audio Mode' in settings.",
+                                R.string.onboarding_system_check_failure_category_sound_mode
+                            )
                             return@postDelayed
                         }
                         
@@ -613,7 +655,10 @@ class OnboardingPagerAdapterNew : RecyclerView.Adapter<RecyclerView.ViewHolder>(
                                     val posted = selfTestHelper.postTestNotification()
                                     
                                     if (!posted) {
-                                        showFailureState("Failed to post test notification. Please check notification settings.")
+                                        showFailureState(
+                                            "Failed to post test notification. Please check notification settings.",
+                                            R.string.onboarding_system_check_failure_category_post_failed
+                                        )
                                         return@postDelayed
                                     }
                                     
@@ -630,11 +675,18 @@ class OnboardingPagerAdapterNew : RecyclerView.Adapter<RecyclerView.ViewHolder>(
                                                 
                                                 when (result.status) {
                                                     SelfTestHelper.TestStatus.NOT_RECEIVED -> {
-                                                        showFailureState("The test notification was not received by SpeakThat. This may be a system issue.")
+                                                        showFailureState(
+                                                            "The test notification was not received by SpeakThat. This may be a system issue.",
+                                                            R.string.onboarding_system_check_failure_category_not_received
+                                                        )
                                                     }
                                                     SelfTestHelper.TestStatus.RECEIVED_NOT_READ -> {
-                                                        val plainReason = translateErrorToPlainEnglish(result.blockingReason)
-                                                        showFailureState(plainReason)
+                                                        val technical = result.blockingReason
+                                                        val plainReason = translateErrorToPlainEnglish(technical)
+                                                        showFailureState(
+                                                            plainReason,
+                                                            categoryStringResForBlockingReason(technical)
+                                                        )
                                                     }
                                                     SelfTestHelper.TestStatus.READ_SUCCESSFULLY -> {
                                                         // Progress to 100%
@@ -685,6 +737,42 @@ class OnboardingPagerAdapterNew : RecyclerView.Adapter<RecyclerView.ViewHolder>(
                 android.media.AudioManager.STREAM_VOICE_CALL -> "Voice Call"
                 android.media.AudioManager.STREAM_SYSTEM -> "System"
                 else -> "Unknown"
+            }
+        }
+        
+        @StringRes
+        private fun categoryStringResForBlockingReason(technicalReason: String): Int {
+            return when {
+                technicalReason.contains("Test interrupted", ignoreCase = true) ->
+                    R.string.onboarding_system_check_failure_category_test_interrupted
+                technicalReason.contains("Duplicate notification", ignoreCase = true) ||
+                    technicalReason.contains("deduplication", ignoreCase = true) ->
+                    R.string.onboarding_system_check_failure_category_duplicate
+                technicalReason.contains("Dismissal memory", ignoreCase = true) ->
+                    R.string.onboarding_system_check_failure_category_dismissal
+                technicalReason.contains("Master switch", ignoreCase = true) ->
+                    R.string.onboarding_system_check_failure_category_master_switch
+                technicalReason.contains("Do Not Disturb", ignoreCase = true) ||
+                    technicalReason.contains("DND", ignoreCase = true) ->
+                    R.string.onboarding_system_check_failure_category_dnd
+                technicalReason.contains("Audio mode", ignoreCase = true) ||
+                    technicalReason.contains("Silent mode", ignoreCase = true) ||
+                    technicalReason.contains("Vibrate mode", ignoreCase = true) ->
+                    R.string.onboarding_system_check_failure_category_sound_mode
+                technicalReason.contains("Rules blocked", ignoreCase = true) ||
+                    technicalReason.contains("Rule evaluation", ignoreCase = true) ->
+                    R.string.onboarding_system_check_failure_category_rule
+                technicalReason.contains("content filter", ignoreCase = true) ->
+                    R.string.onboarding_system_check_failure_category_filter
+                technicalReason.contains("TTS not initialized", ignoreCase = true) ||
+                    technicalReason.contains("TTS error", ignoreCase = true) ||
+                    technicalReason.contains("TTS_STARTED_NOT_COMPLETED", ignoreCase = true) ||
+                    technicalReason.contains("TTS_NEVER_STARTED", ignoreCase = true) ->
+                    R.string.onboarding_system_check_failure_category_tts
+                technicalReason.contains("volume is 0", ignoreCase = true) ||
+                    technicalReason.contains("volume: 0", ignoreCase = true) ->
+                    R.string.onboarding_system_check_failure_category_volume
+                else -> R.string.onboarding_system_check_failure_category_unknown
             }
         }
         
@@ -745,7 +833,10 @@ class OnboardingPagerAdapterNew : RecyclerView.Adapter<RecyclerView.ViewHolder>(
         
         private fun onUserReportedFailure() {
             InAppLogger.log("OnboardingSystemCheck", "User reported test failure")
-            showFailureState("You indicated that you didn't hear the test notification. This may be due to volume, audio mode, or TTS settings.")
+            showFailureState(
+                "You indicated that you didn't hear the test notification. This may be due to volume, audio mode, or TTS settings.",
+                R.string.onboarding_system_check_failure_category_no_audio_heard
+            )
         }
         
         private fun saveTestResult(success: Boolean) {

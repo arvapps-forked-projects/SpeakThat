@@ -24,21 +24,24 @@ import android.net.Uri
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import android.text.format.DateFormat
 import android.os.BatteryManager
 import android.os.Build
 import android.os.SystemClock
 import android.os.PowerManager
 import android.util.Log
+import android.util.TypedValue
 import android.icu.lang.UCharacter
 import android.icu.lang.UProperty
 import androidx.core.app.NotificationCompat
+import androidx.core.content.FileProvider
 import com.micoyc.speakthat.VoiceSettingsActivity
 import com.micoyc.speakthat.GlobalReadoutSuppression
 import com.micoyc.speakthat.settings.BehaviorSettingsActivity
 import com.micoyc.speakthat.settings.BehaviorSettingsStore
+import com.micoyc.speakthat.tts.SpeakThatTtsManager
 import java.io.File
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.HashMap
@@ -97,6 +100,8 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     private var delayBeforeReadout = 0
     private var earconMode: String = BehaviorSettingsStore.DEFAULT_EARCON_MODE
     private var lastEarconStartMs: Long? = null
+    private var grantedEarconUri: Uri? = null
+    private var grantedEarconEnginePackage: String? = null
     private var isPersistentFilteringEnabled = true
     private var legacyDuckingEnabled = false
     
@@ -355,6 +360,8 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         
         // Delay settings
         private const val KEY_DELAY_BEFORE_READOUT = "delay_before_readout"
+        private const val KEY_TTS_ENGINE_PACKAGE = "tts_engine_package"
+        private const val EARCON_CACHE_DIR = "earcons"
 
         private const val EARCON_PRE_CUE = "[pre_cue]"
         private const val UTTERANCE_ID_EARCON = "earcon_id"
@@ -717,7 +724,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             
             // Stop any ongoing TTS
             if (isCurrentlySpeaking) {
-                textToSpeech?.stop()
+                SpeakThatTtsManager.stop()
                 isCurrentlySpeaking = false
             }
             restoreGlobalVoiceSettingsIfNeeded("service destroy")
@@ -731,7 +738,8 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             }
             
             // Shutdown TTS
-            textToSpeech?.shutdown()
+            clearEarconUriGrant()
+            SpeakThatTtsManager.shutdown()
             textToSpeech = null
             
             // Unregister sensors
@@ -1894,17 +1902,15 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             }
             
             // Get selected TTS engine from preferences
-            val voiceSettingsPrefs = getSharedPreferences("VoiceSettings", android.content.Context.MODE_PRIVATE)
-            val selectedEngine = voiceSettingsPrefs.getString("tts_engine_package", "")
-            
-            if (selectedEngine.isNullOrEmpty()) {
-                // Use system default engine
-                textToSpeech = TextToSpeech(this, this)
+            SpeakThatTtsManager.initIfNeeded(this, false) { status ->
+                onInit(status)
+            }
+            textToSpeech = SpeakThatTtsManager.getTextToSpeech()
+            val selectedEngine = SpeakThatTtsManager.getActiveEnginePackage()
+            if (selectedEngine.isBlank()) {
                 Log.d(TAG, "Using system default TTS engine")
                 InAppLogger.log("Service", "Using system default TTS engine")
             } else {
-                // Use selected custom engine
-                textToSpeech = TextToSpeech(this, this, selectedEngine)
                 Log.d(TAG, "Using custom TTS engine: $selectedEngine")
                 InAppLogger.log("Service", "Using custom TTS engine: $selectedEngine")
             }
@@ -1917,9 +1923,12 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                     
                     // Try to reinitialize TTS
                     try {
-                        textToSpeech?.shutdown()
+                        SpeakThatTtsManager.shutdown()
                         textToSpeech = null
-                        textToSpeech = TextToSpeech(this, this)
+                        SpeakThatTtsManager.initIfNeeded(this, true) { status ->
+                            onInit(status)
+                        }
+                        textToSpeech = SpeakThatTtsManager.getTextToSpeech()
                         Log.d(TAG, "TTS reinitialization attempted")
                         InAppLogger.log("Service", "TTS reinitialization attempted")
                     } catch (e: Exception) {
@@ -1989,7 +1998,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 
                 // 1. Shutdown existing TTS
                 try {
-                    textToSpeech?.shutdown()
+                    SpeakThatTtsManager.shutdown()
                     Log.d(TAG, "Existing TTS shutdown completed")
                 } catch (e: Exception) {
                     Log.w(TAG, "Error shutting down existing TTS", e)
@@ -2027,7 +2036,10 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 }
                 
                 // 5. Reinitialize TTS
-                textToSpeech = TextToSpeech(this, this)
+                SpeakThatTtsManager.initIfNeeded(this, true) { status ->
+                    onInit(status)
+                }
+                textToSpeech = SpeakThatTtsManager.getTextToSpeech()
                 
                 // 6. Set up timeout for this recovery attempt
                 val timeout = getTtsInitTimeout()
@@ -2389,7 +2401,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 
                 // Set audio stream to assistant usage to avoid triggering media detection
                 try {
-                    textToSpeech?.setAudioAttributes(
+                    SpeakThatTtsManager.setAudioAttributes(
                         android.media.AudioAttributes.Builder()
                             .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
                             .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -2435,7 +2447,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 
                 // Check if we were trying to use a custom engine
                 val voiceSettingsPrefs = getSharedPreferences("VoiceSettings", android.content.Context.MODE_PRIVATE)
-                val selectedEngine = voiceSettingsPrefs.getString("tts_engine_package", "")
+                val selectedEngine = voiceSettingsPrefs.getString(KEY_TTS_ENGINE_PACKAGE, "")
                 
                 if (!selectedEngine.isNullOrEmpty()) {
                     // Custom engine failed - log it and revert to default
@@ -2443,13 +2455,16 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                     InAppLogger.logError("Service", "Selected TTS engine failed: $selectedEngine")
                     
                     // Clear the saved engine and reinitialize with default
-                    voiceSettingsPrefs.edit().putString("tts_engine_package", "").apply()
+                    voiceSettingsPrefs.edit().putString(KEY_TTS_ENGINE_PACKAGE, "").apply()
                     
                     // Set flag to show error notification
                     shouldShowEngineFailureWarning = true
                     
                     // Reinitialize with default engine
-                    textToSpeech = TextToSpeech(this, this)
+                    SpeakThatTtsManager.initIfNeeded(this, true) { retryStatus ->
+                        onInit(retryStatus)
+                    }
+                    textToSpeech = SpeakThatTtsManager.getTextToSpeech()
                     Log.d(TAG, "Reverting to system default TTS engine")
                     InAppLogger.log("Service", "Reverting to system default TTS engine")
                     return
@@ -6435,36 +6450,11 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         Log.d(TAG, "=== DUCKING DEBUG: Created volume bundle for TTS.speak() ===")
         InAppLogger.log("Service", "=== DUCKING DEBUG: Created volume bundle for TTS.speak() ===")
         
-        // Register listener BEFORE speak() to avoid a race where onStart fires
-        // on the previous listener's closure (which captured stale speechText)
-        textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStop(utteranceId: String?, interrupted: Boolean) {
-                if (utteranceId == "notification_utterance") {
-                    Log.d(TAG, "TTS utterance stopped (interrupted=$interrupted): $utteranceId")
-                    releaseSpeechWakeLock()
-                } else if (utteranceId == UTTERANCE_ID_EARCON) {
-                    InAppLogger.logTTSEvent(
-                        "Earcon stopped",
-                        "mode=$earconMode interrupted=$interrupted"
-                    )
-                }
-            }
-
+        val notificationCallback = object : SpeakThatTtsManager.TtsCallback {
             override fun onStart(utteranceId: String?) {
                 Log.d(TAG, "=== DUCKING DEBUG: TTS utterance STARTED: $utteranceId ===")
                 InAppLogger.log("Service", "=== DUCKING DEBUG: TTS utterance STARTED: $utteranceId ===")
-                
-                if (utteranceId == UTTERANCE_ID_EARCON) {
-                    lastEarconStartMs = SystemClock.elapsedRealtime()
-                    InAppLogger.logTTSEvent(
-                        "Earcon started",
-                        "mode=$earconMode"
-                    )
-                }
-                if (utteranceId != "notification_utterance") {
-                    return
-                }
-                
+
                 val readoutStartMs = SystemClock.elapsedRealtime()
                 lastEarconStartMs?.let { earconMs ->
                     val delta = readoutStartMs - earconMs
@@ -6474,21 +6464,20 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                     )
                 }
                 lastEarconStartMs = null
-                
+
                 InAppLogger.logTTSEvent("TTS started", speechText.take(50))
                 scheduleSpeechSafetyTimeout("utterance_start", currentTtsText)
-                
+
                 val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
                 val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
                 Log.d(TAG, "=== DUCKING DEBUG: TTS started - Music volume: $currentVolume/$maxVolume ===")
                 InAppLogger.log("Service", "=== DUCKING DEBUG: TTS started - Music volume: $currentVolume/$maxVolume ===")
-                
+
                 if (contentCapMode == "time" && contentCapTimeLimit > 0) {
                     contentCapTimerRunnable = Runnable {
                         Log.d(TAG, "Content Cap time limit reached (${contentCapTimeLimit}s) - stopping TTS")
                         InAppLogger.log("Service", "Content Cap time limit reached (${contentCapTimeLimit}s) - stopping TTS")
-                        
-                        // Track interruption if currently speaking
+
                         val wasSpeaking = isCurrentlySpeaking
                         if (wasSpeaking) {
                             try {
@@ -6497,31 +6486,22 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                                 Log.e(TAG, "Error tracking readout interruption", e)
                             }
                         }
-                        
-                        // Stop TTS
-                        textToSpeech?.stop()
+
+                        SpeakThatTtsManager.stop()
                         releaseSpeechWakeLock()
-                        
-                        // Manually trigger cleanup since stop() doesn't always trigger onDone/onError
+
                         isCurrentlySpeaking = false
                         contentCapTimerRunnable = null
                         cancelSpeechSafetyTimeout("content cap")
                         restoreGlobalVoiceSettingsIfNeeded("content cap stop")
-                        
-                        // Stop foreground service
                         stopForegroundService()
-                        
-                        // Unregister sensors
                         unregisterShakeListener()
 
-                        // Ensure media behavior effects are cleaned up (resume paused media, restore volume)
                         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                             cleanupMediaBehavior()
                         }, 250)
-                        
-                        // Resume queue now that the readout has ended early
-                        resumeQueueAfterSpeechEnd("content cap")
 
+                        resumeQueueAfterSpeechEnd("content cap")
                         Log.d(TAG, "Content Cap cleanup completed")
                         InAppLogger.logTTSEvent("TTS stopped by Content Cap", "Time limit: ${contentCapTimeLimit}s")
                     }
@@ -6530,139 +6510,120 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                     InAppLogger.log("Service", "Content Cap timer started: ${contentCapTimeLimit}s")
                 }
             }
-            
+
             override fun onDone(utteranceId: String?) {
-                if (utteranceId == "notification_utterance") {
-                    Log.d(TAG, "=== DUCKING DEBUG: TTS utterance COMPLETED: $utteranceId ===")
-                    InAppLogger.log("Service", "=== DUCKING DEBUG: TTS utterance COMPLETED: $utteranceId ===")
-                    releaseSpeechWakeLock()
-                    isCurrentlySpeaking = false
-                    cancelSpeechSafetyTimeout("utterance_done")
-                    
-                    // Cancel content cap timer if active
-                    contentCapTimerRunnable?.let { runnable ->
-                        delayHandler?.removeCallbacks(runnable)
-                        contentCapTimerRunnable = null
-                        Log.d(TAG, "Content Cap timer cancelled (TTS completed naturally)")
-                    }
-                    
-                    // Log current volume state when TTS completes
-                    val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-                    val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-                    Log.d(TAG, "=== DUCKING DEBUG: TTS completed - Music volume: $currentVolume/$maxVolume ===")
-                    InAppLogger.log("Service", "=== DUCKING DEBUG: TTS completed - Music volume: $currentVolume/$maxVolume ===")
-                    
-                    // Hide reading notification
-                    // hideReadingNotification()
-                    
-                    // CRITICAL: Stop foreground service when TTS completes
-                    // This is essential for proper cleanup and to avoid keeping the service in foreground unnecessarily
-                    stopForegroundService()
-                    
-                    // Unregister shake listener since we're done speaking
-                    unregisterShakeListener()
-                    
-                    // Disable speakerphone if it was enabled
-                    try {
-                        if (isSpeakerphoneEnabled(audioManager)) {
-                            setSpeakerphoneEnabled(audioManager, false)
-                            InAppLogger.log("Service", "Speakerphone disabled after speech completion")
-                        }
-                    } catch (e: Exception) {
-                        InAppLogger.logError("Service", "Failed to disable speakerphone: ${e.message}")
-                    }
-                    
-                    InAppLogger.logTTSEvent("TTS completed", "Utterance finished")
-                    restoreGlobalVoiceSettingsIfNeeded("utterance done")
-                    
-                    // Track notification read for review reminder
-                    trackNotificationReadForReview()
-                    
-                    // Track notification read for statistics (use original app name, not privacy-modified one)
-                    try {
-                        val appNameForStats = if (currentOriginalAppName.isNotEmpty()) currentOriginalAppName else currentAppName
-                        StatisticsManager.getInstance(this@NotificationReaderService).incrementRead(appNameForStats)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error tracking notification read", e)
-                    }
-                    
-                    // Clean up media behavior effects shortly after speech completes
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        cleanupMediaBehavior()
-                    }, 250)
-                    
-                    // Process next item in queue if any
-                    processNotificationQueue()
-                } else if (utteranceId == UTTERANCE_ID_EARCON) {
-                    InAppLogger.logTTSEvent(
-                        "Earcon completed",
-                        "mode=$earconMode"
-                    )
+                Log.d(TAG, "=== DUCKING DEBUG: TTS utterance COMPLETED: $utteranceId ===")
+                InAppLogger.log("Service", "=== DUCKING DEBUG: TTS utterance COMPLETED: $utteranceId ===")
+                releaseSpeechWakeLock()
+                isCurrentlySpeaking = false
+                cancelSpeechSafetyTimeout("utterance_done")
+
+                contentCapTimerRunnable?.let { runnable ->
+                    delayHandler?.removeCallbacks(runnable)
+                    contentCapTimerRunnable = null
+                    Log.d(TAG, "Content Cap timer cancelled (TTS completed naturally)")
                 }
+
+                val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                Log.d(TAG, "=== DUCKING DEBUG: TTS completed - Music volume: $currentVolume/$maxVolume ===")
+                InAppLogger.log("Service", "=== DUCKING DEBUG: TTS completed - Music volume: $currentVolume/$maxVolume ===")
+
+                stopForegroundService()
+                unregisterShakeListener()
+
+                try {
+                    if (isSpeakerphoneEnabled(audioManager)) {
+                        setSpeakerphoneEnabled(audioManager, false)
+                        InAppLogger.log("Service", "Speakerphone disabled after speech completion")
+                    }
+                } catch (e: Exception) {
+                    InAppLogger.logError("Service", "Failed to disable speakerphone: ${e.message}")
+                }
+
+                InAppLogger.logTTSEvent("TTS completed", "Utterance finished")
+                restoreGlobalVoiceSettingsIfNeeded("utterance done")
+                trackNotificationReadForReview()
+
+                try {
+                    val appNameForStats = if (currentOriginalAppName.isNotEmpty()) currentOriginalAppName else currentAppName
+                    StatisticsManager.getInstance(this@NotificationReaderService).incrementRead(appNameForStats)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error tracking notification read", e)
+                }
+
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    cleanupMediaBehavior()
+                }, 250)
+                processNotificationQueue()
             }
-            
-            @Suppress("DEPRECATION")
+
             override fun onError(utteranceId: String?) {
-                if (utteranceId == "notification_utterance") {
-                    Log.e(TAG, "TTS utterance error: $utteranceId")
-                    releaseSpeechWakeLock()
-                    isCurrentlySpeaking = false
-                    cancelSpeechSafetyTimeout("utterance_error")
-                    
-                    // Cancel content cap timer if active
-                    contentCapTimerRunnable?.let { runnable ->
-                        delayHandler?.removeCallbacks(runnable)
-                        contentCapTimerRunnable = null
-                        Log.d(TAG, "Content Cap timer cancelled (TTS error)")
-                    }
-                    
-                    // Hide reading notification
-                    // hideReadingNotification()
-                    
-                    // CRITICAL: Stop foreground service when TTS completes (even on error)
-                    stopForegroundService()
-                    
-                    unregisterShakeListener()
-                    
-                    // Disable speakerphone if it was enabled
-                    try {
-                        if (isSpeakerphoneEnabled(audioManager)) {
-                            setSpeakerphoneEnabled(audioManager, false)
-                            InAppLogger.log("Service", "Speakerphone disabled after TTS error")
-                        }
-                    } catch (e: Exception) {
-                        InAppLogger.logError("Service", "Failed to disable speakerphone: ${e.message}")
-                    }
-                    
-                    Log.e(TAG, "TTS error occurred")
-                    InAppLogger.logTTSEvent("TTS error", "Utterance failed")
-                    restoreGlobalVoiceSettingsIfNeeded("utterance error")
-                    
-                    // Attempt recovery for utterance errors
-                    attemptTtsRecovery("Utterance error: $utteranceId")
-                    
-                    // Clean up media behavior effects with delay to avoid premature volume reduction
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        cleanupMediaBehavior()
-                    }, 1000) // 1 second delay to ensure cleanup doesn't interfere with any ongoing audio
-                    
-                    // Process next item in queue if any
-                    processNotificationQueue()
-                } else if (utteranceId == UTTERANCE_ID_EARCON) {
-                    InAppLogger.logTTSEvent(
-                        "Earcon error",
-                        "mode=$earconMode utteranceId=$utteranceId"
-                    )
+                Log.e(TAG, "TTS utterance error: $utteranceId")
+                releaseSpeechWakeLock()
+                isCurrentlySpeaking = false
+                cancelSpeechSafetyTimeout("utterance_error")
+
+                contentCapTimerRunnable?.let { runnable ->
+                    delayHandler?.removeCallbacks(runnable)
+                    contentCapTimerRunnable = null
+                    Log.d(TAG, "Content Cap timer cancelled (TTS error)")
                 }
+
+                stopForegroundService()
+                unregisterShakeListener()
+
+                try {
+                    if (isSpeakerphoneEnabled(audioManager)) {
+                        setSpeakerphoneEnabled(audioManager, false)
+                        InAppLogger.log("Service", "Speakerphone disabled after TTS error")
+                    }
+                } catch (e: Exception) {
+                    InAppLogger.logError("Service", "Failed to disable speakerphone: ${e.message}")
+                }
+
+                Log.e(TAG, "TTS error occurred")
+                InAppLogger.logTTSEvent("TTS error", "Utterance failed")
+                restoreGlobalVoiceSettingsIfNeeded("utterance error")
+                attemptTtsRecovery("Utterance error: $utteranceId")
+
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    cleanupMediaBehavior()
+                }, 1000)
+                processNotificationQueue()
             }
-        })
+
+            override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                Log.d(TAG, "TTS utterance stopped (interrupted=$interrupted): $utteranceId")
+                releaseSpeechWakeLock()
+            }
+        }
+
+        val earconCallback = object : SpeakThatTtsManager.TtsCallback {
+            override fun onStart(utteranceId: String?) {
+                lastEarconStartMs = SystemClock.elapsedRealtime()
+                InAppLogger.logTTSEvent("Earcon started", "mode=$earconMode")
+            }
+
+            override fun onDone(utteranceId: String?) {
+                InAppLogger.logTTSEvent("Earcon completed", "mode=$earconMode")
+            }
+
+            override fun onError(utteranceId: String?) {
+                InAppLogger.logTTSEvent("Earcon error", "mode=$earconMode utteranceId=$utteranceId")
+            }
+
+            override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                InAppLogger.logTTSEvent("Earcon stopped", "mode=$earconMode interrupted=$interrupted")
+            }
+        }
 
         val jitSuppressReason = GlobalReadoutSuppression.getGlobalSuppressionReason(this)
         if (jitSuppressReason != null) {
             Log.d(TAG, "JIT global suppression ($jitSuppressReason) — skipping earcon/delay/speak; advancing queue")
             InAppLogger.log("JIT suppression", "Aborted readout: $jitSuppressReason")
             try {
-                textToSpeech?.stop()
+                SpeakThatTtsManager.stop()
             } catch (e: Exception) {
                 Log.e(TAG, "TTS stop during JIT suppression", e)
             }
@@ -6691,10 +6652,10 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         }
         if (delayMs > 0L) {
             val silentMs = delayMs.coerceIn(1L, Long.MAX_VALUE)
-            val silentResult = textToSpeech?.playSilentUtterance(
-                silentMs,
-                TextToSpeech.QUEUE_ADD,
-                UTTERANCE_ID_READOUT_DELAY
+            val silentResult = SpeakThatTtsManager.playSilentUtterance(
+                durationMs = silentMs,
+                queueMode = TextToSpeech.QUEUE_ADD,
+                utteranceId = UTTERANCE_ID_READOUT_DELAY
             )
             if (silentResult != TextToSpeech.SUCCESS) {
                 Log.w(TAG, "playSilentUtterance returned $silentResult")
@@ -6710,11 +6671,13 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 "Earcon play requested",
                 "mode=$earconMode resource=$earconLabel queue=QUEUE_ADD"
             )
-            val earconResult = textToSpeech?.playEarcon(
-                EARCON_PRE_CUE,
-                TextToSpeech.QUEUE_ADD,
-                volumeParams,
-                UTTERANCE_ID_EARCON
+            val earconResult = SpeakThatTtsManager.playEarcon(
+                context = this,
+                earcon = EARCON_PRE_CUE,
+                queueMode = TextToSpeech.QUEUE_ADD,
+                params = volumeParams,
+                utteranceId = UTTERANCE_ID_EARCON,
+                callback = earconCallback
             )
             InAppLogger.logTTSEvent(
                 "Earcon play result",
@@ -6733,11 +6696,13 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             }
         }
 
-        val speakResult = textToSpeech?.speak(
-            finalSpeechText,
-            speakQueueMode,
-            volumeParams,
-            "notification_utterance"
+        val speakResult = SpeakThatTtsManager.speak(
+            context = this,
+            text = finalSpeechText,
+            queueMode = speakQueueMode,
+            params = volumeParams,
+            utteranceId = "notification_utterance",
+            callback = notificationCallback
         )
         
         Log.d(TAG, "=== DUCKING DEBUG: TTS.speak() returned: $speakResult ===")
@@ -6789,29 +6754,147 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     }
 
     private fun registerEarcons() {
-        val tts = textToSpeech ?: return
+        val tts = SpeakThatTtsManager.getTextToSpeech() ?: return
+        textToSpeech = tts
         if (!isTtsInitialized) {
             return
         }
         if (earconMode == BehaviorSettingsStore.EARCON_NONE) {
+            clearEarconUriGrant()
             return
         }
         val rawId = earconRawRes(earconMode)
         if (rawId == null) {
+            clearEarconUriGrant()
             Log.w(TAG, "Unknown earcon mode: $earconMode")
             InAppLogger.logWarning("Service", "Unknown earcon mode: $earconMode")
             return
         }
         val label = resources.getResourceEntryName(rawId)
-        val result = tts.addEarcon(EARCON_PRE_CUE, packageName, rawId)
+        val cachedEarconFile = copyEarconRawToCache(rawId) ?: return
+        val contentUri = try {
+            FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                cachedEarconFile
+            )
+        } catch (e: IllegalArgumentException) {
+            Log.e(TAG, "Failed to build earcon URI for ${cachedEarconFile.absolutePath}", e)
+            InAppLogger.logError("Service", "Earcon URI creation failed: ${e.message}")
+            return
+        }
+        grantEarconReadPermission(tts, contentUri, label)
+        val result = SpeakThatTtsManager.addEarcon(EARCON_PRE_CUE, contentUri)
         if (result != TextToSpeech.SUCCESS) {
             Log.w(TAG, "addEarcon ($label) returned $result")
             InAppLogger.logWarning("Service", "addEarcon ($label) returned $result")
         } else {
             InAppLogger.logTTSEvent(
                 "Earcon registered",
-                "mode=$earconMode resource=$label result=$result"
+                "mode=$earconMode resource=$label uri=$contentUri result=$result"
             )
+        }
+    }
+
+    private fun copyEarconRawToCache(rawId: Int): File? {
+        val entryName = try {
+            resources.getResourceEntryName(rawId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to resolve earcon resource entry for id=$rawId", e)
+            InAppLogger.logError("Service", "Earcon entry resolution failed: ${e.message}")
+            return null
+        }
+        val extension = resolveRawResourceExtension(rawId)
+        val earconDir = File(cacheDir, EARCON_CACHE_DIR)
+        if (!earconDir.exists() && !earconDir.mkdirs()) {
+            Log.e(TAG, "Failed to create earcon cache directory: ${earconDir.absolutePath}")
+            InAppLogger.logError("Service", "Failed to create earcon cache directory")
+            return null
+        }
+        val cachedFile = File(earconDir, "$entryName.$extension")
+        val shouldRewrite = !cachedFile.exists() || cachedFile.length() <= 0L
+        if (!shouldRewrite) {
+            return cachedFile
+        }
+
+        return try {
+            resources.openRawResource(rawId).use { input ->
+                cachedFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            cachedFile
+        } catch (e: IOException) {
+            Log.e(TAG, "Failed to cache earcon resource $entryName", e)
+            InAppLogger.logError("Service", "Failed to cache earcon resource $entryName: ${e.message}")
+            null
+        }
+    }
+
+    private fun resolveRawResourceExtension(rawId: Int): String {
+        return try {
+            val typedValue = TypedValue()
+            resources.getValue(rawId, typedValue, true)
+            val sourcePath = typedValue.string?.toString().orEmpty()
+            sourcePath.substringAfterLast('.', "").ifBlank { "dat" }
+        } catch (_: Exception) {
+            "dat"
+        }
+    }
+
+    private fun grantEarconReadPermission(tts: TextToSpeech, contentUri: Uri, earconLabel: String) {
+        val enginePackage = resolveActiveTtsEnginePackage(tts)
+        if (enginePackage.isNullOrBlank()) {
+            Log.w(TAG, "Skipping URI grant for earcon $earconLabel because active TTS engine package is unknown")
+            InAppLogger.logWarning("Service", "Skipping earcon URI grant; active TTS engine package unknown")
+            return
+        }
+
+        val previousUri = grantedEarconUri
+        val previousEngine = grantedEarconEnginePackage
+        if (previousUri != null && (previousUri != contentUri || previousEngine != enginePackage)) {
+            try {
+                revokeUriPermission(previousUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: Exception) {
+                // Best-effort cleanup. New grant still proceeds below.
+            }
+        }
+
+        try {
+            grantUriPermission(enginePackage, contentUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            grantedEarconUri = contentUri
+            grantedEarconEnginePackage = enginePackage
+            InAppLogger.logTTSEvent(
+                "Earcon URI granted",
+                "engine=$enginePackage uri=$contentUri label=$earconLabel"
+            )
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Failed granting URI permission for engine $enginePackage", e)
+            InAppLogger.logError("Service", "Earcon URI grant failed for $enginePackage: ${e.message}")
+        }
+    }
+
+    private fun resolveActiveTtsEnginePackage(tts: TextToSpeech): String? {
+        val selectedEngine = voiceSettingsPrefs?.getString(KEY_TTS_ENGINE_PACKAGE, "")?.trim().orEmpty()
+        if (selectedEngine.isNotEmpty()) {
+            return selectedEngine
+        }
+        val defaultEngine = tts.defaultEngine?.trim().orEmpty()
+        if (defaultEngine.isNotEmpty()) {
+            return defaultEngine
+        }
+        return null
+    }
+
+    private fun clearEarconUriGrant() {
+        val uri = grantedEarconUri ?: return
+        try {
+            revokeUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: Exception) {
+            // Ignore cleanup failures during shutdown/reset.
+        } finally {
+            grantedEarconUri = null
+            grantedEarconEnginePackage = null
         }
     }
 
@@ -6820,9 +6903,10 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     }
 
     private fun applyVoiceSettings() {
+        textToSpeech = SpeakThatTtsManager.getTextToSpeech()
         if (isTtsInitialized && textToSpeech != null) {
             InAppLogger.log("Service", "Applying voice settings to service TTS instance")
-            VoiceSettingsActivity.applyVoiceSettings(textToSpeech!!, voiceSettingsPrefs)
+            SpeakThatTtsManager.applyVoiceSettings(this)
             Log.d(TAG, "Voice settings applied")
             InAppLogger.log("Service", "Voice settings applied to service TTS instance")
         } else {

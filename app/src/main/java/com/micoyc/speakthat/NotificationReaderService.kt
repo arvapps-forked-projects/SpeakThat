@@ -296,6 +296,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
     companion object {
         private const val TAG = "NotificationReader"
         private val notificationHistory = ArrayList<NotificationData>()
+        private var notificationHistorySequence = 0L
         private const val MAX_HISTORY_SIZE = 15
         const val PREFS_NAME = "SpeakThatPrefs"
 
@@ -447,6 +448,12 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             return notificationHistory.toList()
         }
 
+        @Synchronized
+        private fun nextNotificationHistoryId(): Long {
+            notificationHistorySequence += 1L
+            return notificationHistorySequence
+        }
+
         /**
          * Null-safe read-only bridge for summaries.
          * Returns an empty array when listener is unavailable/disconnected.
@@ -570,7 +577,8 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         val wasRead: Boolean = true,
         val spokenText: String? = null,
         val blockedReason: String? = null,
-        val isSystemEvent: Boolean = false
+        val isSystemEvent: Boolean = false,
+        val historyId: Long = nextNotificationHistoryId()
     )
     
     data class QueuedNotification(

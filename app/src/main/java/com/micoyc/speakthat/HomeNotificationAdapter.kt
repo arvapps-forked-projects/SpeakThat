@@ -150,10 +150,7 @@ class HomeNotificationAdapter(
         oldItem: NotificationReaderService.NotificationData,
         newItem: NotificationReaderService.NotificationData
     ): Boolean {
-        return oldItem.packageName == newItem.packageName &&
-            oldItem.timestamp == newItem.timestamp &&
-            oldItem.title == newItem.title &&
-            oldItem.text == newItem.text
+        return oldItem.historyId == newItem.historyId
     }
 
     private fun loadAppIcon(context: android.content.Context, packageName: String): Drawable? {

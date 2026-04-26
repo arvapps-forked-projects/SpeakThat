@@ -1294,7 +1294,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             val packageName = sbn.packageName
                 
             // Check for SelfTest notification - bypass self-package filter if it's a test
-            val isSelfTest = notification.extras.getBoolean(SelfTestHelper.EXTRA_IS_SELFTEST, false)
+            val isSelfTest = notification.extras?.getBoolean(SelfTestHelper.EXTRA_IS_SELFTEST, false) ?: false
             if (isSelfTest) {
                 Log.d(TAG, "SelfTest notification detected - bypassing self-package filter")
                 InAppLogger.log("SelfTest", "SelfTest notification received")
@@ -1689,9 +1689,8 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                 Log.d(TAG, "Dismissal memory disabled - processing all notifications")
             }
                 
-            if (notificationText.isNotEmpty()) {
-                // Log the notification being processed for debugging
-                Log.d(TAG, "Processing notification from $appName: '$notificationText' (ID: ${sbn?.id}, time: ${System.currentTimeMillis()})")
+            // Log the notification being processed for debugging
+            Log.d(TAG, "Processing notification from $appName: '$notificationText' (ID: ${sbn?.id}, time: ${System.currentTimeMillis()})")
                     
                 // Apply filtering first to determine final privacy status
                 val filterResult = applyFilters(
@@ -1772,7 +1771,6 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
                         blockedReason = uiReason
                     )
                 }
-            }
         } catch (e: Exception) {
             val exceptionName = e.javaClass.simpleName
             val contextMessage = "Error processing notification for ${sbn.packageName}#${sbn.id}: $exceptionName: ${e.message}"
@@ -2670,16 +2668,16 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         val safePackageName = packageNameForLog ?: "unknown"
         return try {
             val extras = notification.extras
-            val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
-            val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
-            val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString() ?: ""
-            val summaryText = extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)?.toString() ?: ""
-            val infoText = extras.getCharSequence(Notification.EXTRA_INFO_TEXT)?.toString() ?: ""
+            val title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+            val text = extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
+            val bigText = extras?.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString() ?: ""
+            val summaryText = extras?.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)?.toString() ?: ""
+            val infoText = extras?.getCharSequence(Notification.EXTRA_INFO_TEXT)?.toString() ?: ""
             
             // Log the available notification content for debugging
             Log.d(TAG, "Notification content - Title: '$title', Text: '$text', BigText: '$bigText', Summary: '$summaryText', Info: '$infoText'")
             
-            val extracted = if (extras.getString("android.template")?.contains("gmail") == true ||
+            val extracted = if (extras?.getString("android.template")?.contains("gmail") == true ||
                 title.contains("Gmail", ignoreCase = true) ||
                 summaryText.contains("new message", ignoreCase = true) ||
                 text.contains("new message", ignoreCase = true)) {
@@ -3607,6 +3605,17 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
             if (InAppLogger.verboseMode) {
                 Log.d(TAG, "=== CONTENT CAP DEBUG: Content cap is disabled, skipping ===")
                 InAppLogger.logFilter("Content cap DISABLED - skipping")
+            }
+        }
+        
+        val evalText = if (tidySpeechRemoveEmojisEnabled) removeSpokenEmojis(processedText) else processedText
+        if (isEffectivelyEmpty(evalText)) {
+            if (filterEmptyTextEnabled) {
+                return FilterResult(false, processedText, "Empty text")
+            } else {
+                // User allows empty text, but we clear the payload so leftover punctuation
+                // (like an orphaned colon) doesn't pollute the speech template.
+                processedText = ""
             }
         }
         
@@ -7397,6 +7406,21 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         return builder.toString()
     }
     
+    private fun isEffectivelyEmpty(text: String): Boolean {
+        if (text.isBlank()) return true
+        
+        var index = 0
+        while (index < text.length) {
+            val codePoint = text.codePointAt(index)
+            if (Character.isLetterOrDigit(codePoint)) {
+                return false // Found a speakable character
+            }
+            index += Character.charCount(codePoint)
+        }
+        
+        return true // Only punctuation, whitespace, or non-speakable symbols left
+    }
+    
     /**
      * Format speech text using the custom template with placeholders
      */
@@ -7474,48 +7498,6 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         
         // Handle template localization + varied/custom modes
         val templateToUse = resolveSpeechTemplateForPlayback(speechTemplateOverride)
-        
-        if (filterEmptyTextEnabled) {
-            val payloadPlaceholders = listOf("{text}", "{title}", "{content}", "{bigtext}", "{summary}", "{ticker}", "{info}")
-            val hasPayloadPlaceholder = payloadPlaceholders.any { templateToUse.contains(it) }
-            
-            if (hasPayloadPlaceholder) {
-                var isAllPayloadEmpty = true
-                if (templateToUse.contains("{text}")) {
-                    val evalText = if (tidySpeechRemoveEmojisEnabled) removeSpokenEmojis(notificationText) else notificationText
-                    if (evalText.isNotBlank()) isAllPayloadEmpty = false
-                }
-                if (templateToUse.contains("{title}")) {
-                    val evalText = if (tidySpeechRemoveEmojisEnabled) removeSpokenEmojis(title) else title
-                    if (evalText.isNotBlank()) isAllPayloadEmpty = false
-                }
-                if (templateToUse.contains("{content}")) {
-                    val evalText = if (tidySpeechRemoveEmojisEnabled) removeSpokenEmojis(text) else text
-                    if (evalText.isNotBlank()) isAllPayloadEmpty = false
-                }
-                if (templateToUse.contains("{bigtext}")) {
-                    val evalText = if (tidySpeechRemoveEmojisEnabled) removeSpokenEmojis(bigText) else bigText
-                    if (evalText.isNotBlank()) isAllPayloadEmpty = false
-                }
-                if (templateToUse.contains("{summary}")) {
-                    val evalText = if (tidySpeechRemoveEmojisEnabled) removeSpokenEmojis(summaryText) else summaryText
-                    if (evalText.isNotBlank()) isAllPayloadEmpty = false
-                }
-                if (templateToUse.contains("{ticker}")) {
-                    val evalText = if (tidySpeechRemoveEmojisEnabled) removeSpokenEmojis(tickerText) else tickerText
-                    if (evalText.isNotBlank()) isAllPayloadEmpty = false
-                }
-                if (templateToUse.contains("{info}")) {
-                    val evalText = if (tidySpeechRemoveEmojisEnabled) removeSpokenEmojis(infoText) else infoText
-                    if (evalText.isNotBlank()) isAllPayloadEmpty = false
-                }
-                
-                if (isAllPayloadEmpty) {
-                    Log.d(TAG, "Filter empty text: All payload variables are blank after evaluation. Aborting wrapper generation.")
-                    return ""
-                }
-            }
-        }
         
         // Process the template with all available placeholders
         var processedTemplate = templateToUse

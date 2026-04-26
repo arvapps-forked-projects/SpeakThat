@@ -2795,7 +2795,7 @@ class NotificationReaderService : NotificationListenerService(), TextToSpeech.On
         isSystemEvent: Boolean = false
     ) {
         try {
-            val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+            val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", java.util.Locale.getDefault()).format(java.util.Date())
             val notificationData = NotificationData(
                 appName, packageName, title, text, timestamp, wasRead, spokenText, blockedReason, isSystemEvent
             )

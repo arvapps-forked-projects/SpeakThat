@@ -54,8 +54,7 @@ public class SupportActivity extends AppCompatActivity {
     private List<QuestionView> questionViews = new ArrayList<>();
     
     // Frozen logs captured when the screen opens
-    private String frozenLogs = "";
-    private String frozenSystemInfo = "";
+    private String frozenSupportData = "";
     private int frozenLogCount = 0;
     
     @Override
@@ -333,8 +332,7 @@ public class SupportActivity extends AppCompatActivity {
         // Capture logs and system info at the moment the screen opens
         // This preserves the debugging state before the user starts filling out the form
         frozenLogCount = InAppLogger.getLogCount();
-        frozenSystemInfo = InAppLogger.getSystemInfo(this);
-        frozenLogs = InAppLogger.getLogsForSupport();
+        frozenSupportData = SupportDataCollector.INSTANCE.collectSupportData(this);
     }
     
     private void updateLogInfo() {
@@ -426,40 +424,52 @@ public class SupportActivity extends AppCompatActivity {
             }
             
             // Add debug logs if needed (use frozen logs captured when screen opened)
+            Uri fileUri = null;
             if (includeLogs) {
-                bodyBuilder.append("=== DEBUG INFORMATION ===\n");
-                bodyBuilder.append(frozenSystemInfo);
-                bodyBuilder.append("\n\n=== DEBUG LOGS ===\n");
-                bodyBuilder.append(frozenLogs);
-                bodyBuilder.append("\n=== END DEBUG INFO ===\n\n");
+                try {
+                    java.io.File cacheDir = getCacheDir();
+                    java.io.File supportFile = new java.io.File(cacheDir, "speakthat_support_data.json");
+                    try (java.io.FileWriter writer = new java.io.FileWriter(supportFile)) {
+                        writer.write(frozenSupportData);
+                    }
+                    fileUri = androidx.core.content.FileProvider.getUriForFile(
+                        this,
+                        getPackageName() + ".fileprovider",
+                        supportFile
+                    );
+                } catch (Exception e) {
+                    InAppLogger.logError("Support", "Failed to write support data file: " + e.getMessage());
+                }
             }
             
             // Create email intent
             String recipient = "micoycbusiness@gmail.com";
-            Intent emailIntent = new Intent(Intent.ACTION_SENDTO);
-            emailIntent.setData(Uri.parse("mailto:"));
+            
+            Intent selectorIntent = new Intent(Intent.ACTION_SENDTO);
+            selectorIntent.setData(Uri.parse("mailto:"));
+            
+            Intent emailIntent = new Intent(Intent.ACTION_SEND);
             emailIntent.putExtra(Intent.EXTRA_EMAIL, new String[]{recipient});
-            emailIntent.putExtra(Intent.EXTRA_SUBJECT, subject);
+            emailIntent.putExtra(Intent.EXTRA_SUBJECT, subject + " - Ref: " + referenceNumber);
             emailIntent.putExtra(Intent.EXTRA_TEXT, bodyBuilder.toString());
             
+            if (fileUri != null) {
+                emailIntent.putExtra(Intent.EXTRA_STREAM, fileUri);
+                emailIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            }
+            
+            emailIntent.setSelector(selectorIntent); // This forces email apps only
+            
             try {
-                startActivity(emailIntent);
+                startActivity(Intent.createChooser(emailIntent, "Send Support Email"));
                 InAppLogger.logUserAction("Support email opened", 
                     "Type: " + currentType + ", Logs: " + includeLogs + ", Ref: " + referenceNumber);
                 finish(); // Close the activity after opening email
             } catch (Exception e) {
-                // Fallback: try with chooser
-                try {
-                    startActivity(Intent.createChooser(emailIntent, "Send email"));
-                    InAppLogger.logUserAction("Support email opened via chooser", 
-                        "Type: " + currentType + ", Logs: " + includeLogs);
-                    finish();
-                } catch (Exception e2) {
-                    Toast.makeText(this, 
-                        "No email app found. Please install an email app to send support requests.", 
-                        Toast.LENGTH_LONG).show();
-                    InAppLogger.logError("Support", "No email app available: " + e2.getMessage());
-                }
+                Toast.makeText(this, 
+                    "No email app found. Please install an email app to send support requests.", 
+                    Toast.LENGTH_LONG).show();
+                InAppLogger.logError("Support", "No email app available: " + e.getMessage());
             }
             
         } catch (Exception e) {

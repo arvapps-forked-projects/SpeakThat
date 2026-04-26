@@ -177,6 +177,17 @@ object SettingsDatabase {
                 navigationAction = { context.startActivity(Intent(context, BehaviorSettingsActivity::class.java)) }
             ),
             SettingsItem(
+                id = "skip_repeated_prefix",
+                title = context.getString(R.string.behavior_skip_repeated_prefix_title),
+                description = context.getString(R.string.behavior_skip_repeated_prefix_description),
+                category = "behavior",
+                categoryTitle = "Behavior Settings",
+                categoryIcon = "🔔",
+                settingType = SettingType.SWITCH,
+                searchKeywords = listOf("skip", "repeated", "prefix", "notification", "consecutive", "group", "chat", "contact"),
+                navigationAction = { context.startActivity(Intent(context, BehaviorSettingsActivity::class.java)) }
+            ),
+            SettingsItem(
                 id = "honour_do_not_disturb",
                 title = "Honour Do Not Disturb",
                 description = "Respect device Do Not Disturb settings",
@@ -368,6 +379,17 @@ object SettingsDatabase {
                 categoryIcon = "🔍",
                 settingType = SettingType.SWITCH,
                 searchKeywords = listOf("remove", "emoji", "emojis", "symbol", "symbols", "speech", "spoken", "nonverbal", "non-verbal"),
+                navigationAction = { context.startActivity(Intent(context, FilterSettingsActivity::class.java)) }
+            ),
+            SettingsItem(
+                id = "filter_empty_text",
+                title = context.getString(R.string.filter_empty_text_title),
+                description = context.getString(R.string.filter_empty_text_description),
+                category = "filter",
+                categoryTitle = context.getString(R.string.title_filter_settings),
+                categoryIcon = "🔍",
+                settingType = SettingType.SWITCH,
+                searchKeywords = listOf("filter", "empty", "text", "blank", "hollow", "nothing", "speech", "spoken"),
                 navigationAction = { context.startActivity(Intent(context, FilterSettingsActivity::class.java)) }
             ),
             SettingsItem(
@@ -675,6 +697,17 @@ object SettingsDatabase {
                 categoryIcon = "🔧",
                 settingType = SettingType.SWITCH,
                 searchKeywords = listOf("speakerphone", "speaker", "audio", "output", "force", "loud"),
+                navigationAction = { context.startActivity(Intent(context, CompatibilitySettingsActivity::class.java)) }
+            ),
+            SettingsItem(
+                id = "dont_use_speaker",
+                title = "Don't Use Speaker",
+                description = "Abort the readout if speech will be routed through device speakers",
+                category = "compatibility",
+                categoryTitle = "Compatibility Settings",
+                categoryIcon = "🔧",
+                settingType = SettingType.SWITCH,
+                searchKeywords = listOf("speaker", "audio", "output", "abort", "prevent", "privacy", "quiet"),
                 navigationAction = { context.startActivity(Intent(context, CompatibilitySettingsActivity::class.java)) }
             ),
             SettingsItem(

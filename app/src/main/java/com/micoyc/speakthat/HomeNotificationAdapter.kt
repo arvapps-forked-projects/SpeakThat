@@ -8,6 +8,7 @@
 package com.micoyc.speakthat
 
 import android.graphics.drawable.Drawable
+import android.content.Context
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -25,6 +26,8 @@ class HomeNotificationAdapter(
 
     companion object {
         private const val TAG = "HomeNotifAdapter"
+        private const val PREFS_NAME = "SpeakThatPrefs"
+        private const val KEY_SHOW_SYSTEM_BLOCKS_HISTORY = "show_system_blocks_history"
     }
 
     class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -46,7 +49,10 @@ class HomeNotificationAdapter(
         val notification = notifications[position]
         val context = holder.itemView.context
 
-        val displayTimestamp = formatTimestamp(notification.timestamp)
+        val showPreciseTimestamp = context
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_SHOW_SYSTEM_BLOCKS_HISTORY, false)
+        val displayTimestamp = formatTimestamp(notification.timestamp, showPreciseTimestamp)
         holder.textAppNameTime.text = "${notification.appName} \u2022 $displayTimestamp"
 
         if (notification.title.isNotEmpty()) {
@@ -150,10 +156,7 @@ class HomeNotificationAdapter(
         oldItem: NotificationReaderService.NotificationData,
         newItem: NotificationReaderService.NotificationData
     ): Boolean {
-        return oldItem.packageName == newItem.packageName &&
-            oldItem.timestamp == newItem.timestamp &&
-            oldItem.title == newItem.title &&
-            oldItem.text == newItem.text
+        return oldItem.historyId == newItem.historyId
     }
 
     private fun loadAppIcon(context: android.content.Context, packageName: String): Drawable? {
@@ -165,12 +168,19 @@ class HomeNotificationAdapter(
         }
     }
 
-    /**
-     * Formats "yyyy-MM-dd HH:mm:ss" into "HH:mm" for compact display.
-     */
-    private fun formatTimestamp(timestamp: String): String {
+    private fun formatTimestamp(timestamp: String, showMilliseconds: Boolean): String {
         return try {
-            if (timestamp.length >= 16) timestamp.substring(11, 16) else timestamp
+            if (!showMilliseconds) {
+                return if (timestamp.length >= 16) timestamp.substring(11, 16) else timestamp
+            }
+
+            // Stored timestamps can be either second or millisecond precision.
+            when {
+                timestamp.length >= 23 -> timestamp.substring(11, 23) // HH:mm:ss.SSS
+                timestamp.length >= 19 -> timestamp.substring(11, 19) // HH:mm:ss (legacy entries)
+                timestamp.length >= 16 -> timestamp.substring(11, 16) // HH:mm fallback
+                else -> timestamp
+            }
         } catch (e: Exception) {
             timestamp
         }

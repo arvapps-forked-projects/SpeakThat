@@ -15,6 +15,8 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.micoyc.speakthat.AppPickerActivity;
 import com.micoyc.speakthat.PriorityAppAdapter;
 import com.micoyc.speakthat.R;
@@ -36,6 +38,7 @@ public class NotificationBehaviorSection implements BehaviorSettingsSection {
     private final List<String> priorityAppsList = new ArrayList<>();
     private PriorityAppAdapter priorityAppAdapter;
     private ActivityResultLauncher<Intent> priorityAppPickerLauncher;
+    private MaterialSwitch switchSkipRepeatedNotificationPrefixes;
 
     public NotificationBehaviorSection(
         AppCompatActivity activity,
@@ -66,6 +69,34 @@ public class NotificationBehaviorSection implements BehaviorSettingsSection {
                 }
             }
         );
+
+        // repeated prefix skipping by robomwm
+        switchSkipRepeatedNotificationPrefixes = binding.switchSkipRepeatedNotificationPrefixes;
+        switchSkipRepeatedNotificationPrefixes.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (store.isInitializing()) {
+                return;
+            }
+            store.prefs().edit().putBoolean(
+                BehaviorSettingsStore.KEY_SKIP_REPEATED_NOTIFICATION_PREFIX,
+                isChecked
+            ).apply();
+            binding.layoutPrefixMemoryTimeout.setVisibility(isChecked ? View.VISIBLE : View.GONE);
+        });
+
+        binding.sliderPrefixMemoryTimeout.addOnChangeListener((slider, value, fromUser) -> {
+            if (fromUser) {
+                int timeout = (int) value;
+                binding.tvPrefixMemoryTimeoutValue.setText(
+                    activity.getString(R.string.behavior_prefix_memory_timeout_value, timeout)
+                );
+                if (!store.isInitializing()) {
+                    store.prefs().edit().putInt(
+                        BehaviorSettingsStore.KEY_PREFIX_MEMORY_TIMEOUT,
+                        timeout
+                    ).apply();
+                }
+            }
+        });
 
         binding.behaviorModeGroup.setOnCheckedChangeListener((group, checkedId) -> {
             String mode = "interrupt";
@@ -119,6 +150,22 @@ public class NotificationBehaviorSection implements BehaviorSettingsSection {
         priorityAppsList.addAll(priorityApps);
         priorityAppAdapter.notifyDataSetChanged();
         updatePriorityAppsSummary();
+
+        boolean skipRepeatedPrefix = store.prefs().getBoolean(
+            BehaviorSettingsStore.KEY_SKIP_REPEATED_NOTIFICATION_PREFIX,
+            BehaviorSettingsStore.DEFAULT_SKIP_REPEATED_NOTIFICATION_PREFIX
+        );
+        switchSkipRepeatedNotificationPrefixes.setChecked(skipRepeatedPrefix);
+        binding.layoutPrefixMemoryTimeout.setVisibility(skipRepeatedPrefix ? View.VISIBLE : View.GONE);
+
+        int prefixMemoryTimeout = store.prefs().getInt(
+            BehaviorSettingsStore.KEY_PREFIX_MEMORY_TIMEOUT,
+            BehaviorSettingsStore.DEFAULT_PREFIX_MEMORY_TIMEOUT
+        );
+        binding.sliderPrefixMemoryTimeout.setValue(prefixMemoryTimeout);
+        binding.tvPrefixMemoryTimeoutValue.setText(
+            activity.getString(R.string.behavior_prefix_memory_timeout_value, prefixMemoryTimeout)
+        );
     }
 
     @Override

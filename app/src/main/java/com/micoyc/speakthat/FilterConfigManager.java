@@ -38,6 +38,7 @@ public class FilterConfigManager {
     private static final String KEY_URL_HANDLING_MODE = "url_handling_mode";
     private static final String KEY_URL_REPLACEMENT_TEXT = "url_replacement_text";
     private static final String KEY_TIDY_SPEECH_REMOVE_EMOJIS = "tidy_speech_remove_emojis";
+    private static final String KEY_FILTER_EMPTY_TEXT = "filter_empty_text";
 
     private static float roundToTwoDecimalPlaces(float value) {
         return Math.round(value * 100.0f) / 100.0f;
@@ -54,6 +55,7 @@ public class FilterConfigManager {
         public String urlHandlingMode;
         public String urlReplacementText;
         public boolean tidySpeechRemoveEmojis;
+        public boolean filterEmptyText;
         public boolean mediaFilteringEnabled;
         // Persistent/silent filtering settings
         public boolean persistentFilteringEnabled;
@@ -76,6 +78,7 @@ public class FilterConfigManager {
             this.urlHandlingMode = "domain_only";
             this.urlReplacementText = "";
             this.tidySpeechRemoveEmojis = false;
+            this.filterEmptyText = false;
             this.mediaFilteringEnabled = false;
             // Persistent/silent filtering defaults
             this.persistentFilteringEnabled = false;
@@ -162,6 +165,8 @@ public class FilterConfigManager {
         public boolean honourAudioMode; // Legacy combined audio mode flag
         public boolean persistentNotification; // Add persistent notification setting
         public boolean notificationWhileReading; // Add notification while reading setting
+        public boolean skipRepeatedNotificationPrefix;
+        public int prefixMemoryTimeoutSeconds;
         public boolean waveToStopEnabled;
         public int waveTimeoutSeconds;
         public long waveHoldDurationMs; // Wave hold duration in milliseconds
@@ -178,6 +183,7 @@ public class FilterConfigManager {
         public int dismissalMemoryTimeout;
         public boolean disableMediaFallback;
         public boolean enableLegacyDucking;
+        public boolean dontUseSpeaker; // NEW
         public String earconMode;
         
         public BehaviorConfig() {
@@ -197,6 +203,8 @@ public class FilterConfigManager {
             this.honourAudioMode = true; // Legacy: keep for backwards compatibility
             this.persistentNotification = false; // Default to false
             this.notificationWhileReading = false; // Default to false
+            this.skipRepeatedNotificationPrefix = false; // Default to false
+            this.prefixMemoryTimeoutSeconds = 60; // Default to 60 seconds
             this.waveToStopEnabled = false;
             this.waveTimeoutSeconds = 30;
             this.waveHoldDurationMs = 150; // Default wave hold duration
@@ -213,6 +221,7 @@ public class FilterConfigManager {
             this.dismissalMemoryTimeout = 15;
             this.disableMediaFallback = false;
             this.enableLegacyDucking = false;
+            this.dontUseSpeaker = false; // NEW
             this.earconMode = BehaviorSettingsStore.EARCON_NONE;
         }
     }
@@ -288,6 +297,7 @@ public class FilterConfigManager {
         config.urlHandlingMode = prefs.getString(KEY_URL_HANDLING_MODE, "domain_only");
         config.urlReplacementText = prefs.getString(KEY_URL_REPLACEMENT_TEXT, "");
         config.tidySpeechRemoveEmojis = prefs.getBoolean(KEY_TIDY_SPEECH_REMOVE_EMOJIS, false);
+        config.filterEmptyText = prefs.getBoolean(KEY_FILTER_EMPTY_TEXT, false);
         config.mediaFilteringEnabled = prefs.getBoolean("media_filtering_enabled", true);
         
         // Create JSON structure
@@ -313,6 +323,7 @@ public class FilterConfigManager {
         filters.put("urlHandlingMode", config.urlHandlingMode);
         filters.put("urlReplacementText", config.urlReplacementText);
         filters.put("tidySpeechRemoveEmojis", config.tidySpeechRemoveEmojis);
+        filters.put("filterEmptyText", config.filterEmptyText);
         filters.put("mediaFilteringEnabled", config.mediaFilteringEnabled);
         json.put("filters", filters);
         
@@ -350,6 +361,7 @@ public class FilterConfigManager {
         config.filters.urlHandlingMode = prefs.getString(KEY_URL_HANDLING_MODE, "domain_only");
         config.filters.urlReplacementText = prefs.getString(KEY_URL_REPLACEMENT_TEXT, "");
         config.filters.tidySpeechRemoveEmojis = prefs.getBoolean(KEY_TIDY_SPEECH_REMOVE_EMOJIS, false);
+        config.filters.filterEmptyText = prefs.getBoolean(KEY_FILTER_EMPTY_TEXT, false);
         
         config.filters.mediaFilteringEnabled = prefs.getBoolean("media_filtering_enabled", false);
         
@@ -399,6 +411,8 @@ public class FilterConfigManager {
         config.behavior.honourAudioMode = legacyHonourAudioMode;
         config.behavior.persistentNotification = prefs.getBoolean("persistent_notification", false); // Add persistent notification
         config.behavior.notificationWhileReading = prefs.getBoolean("notification_while_reading", false); // Add notification while reading
+        config.behavior.skipRepeatedNotificationPrefix = prefs.getBoolean("skip_notification_repeated_prefix", false);
+        config.behavior.prefixMemoryTimeoutSeconds = prefs.getInt("prefix_memory_timeout_seconds", 60);
         config.behavior.waveToStopEnabled = prefs.getBoolean("wave_to_stop_enabled", false);
         config.behavior.waveTimeoutSeconds = prefs.getInt("wave_timeout_seconds", 30);
         config.behavior.waveHoldDurationMs = prefs.getInt("wave_hold_duration_ms", 150); // Read as int, auto-converts to long
@@ -415,6 +429,7 @@ public class FilterConfigManager {
         config.behavior.dismissalMemoryTimeout = prefs.getInt("dismissal_memory_timeout", 15);
         config.behavior.disableMediaFallback = prefs.getBoolean("disable_media_fallback", false);
         config.behavior.enableLegacyDucking = prefs.getBoolean("enable_legacy_ducking", false);
+        config.behavior.dontUseSpeaker = prefs.getBoolean("dont_use_speaker", false); // NEW
         
         // Load general settings
         config.general.darkMode = prefs.getBoolean("dark_mode", true);
@@ -504,6 +519,8 @@ public class FilterConfigManager {
         behavior.put("honourAudioMode", config.behavior.honourAudioMode); // Legacy combined flag
         behavior.put("persistentNotification", config.behavior.persistentNotification); // Add persistent notification
         behavior.put("notificationWhileReading", config.behavior.notificationWhileReading); // Add notification while reading
+        behavior.put("skipRepeatedNotificationPrefix", config.behavior.skipRepeatedNotificationPrefix);
+        behavior.put("prefixMemoryTimeoutSeconds", config.behavior.prefixMemoryTimeoutSeconds);
         behavior.put("waveToStopEnabled", config.behavior.waveToStopEnabled);
         behavior.put("waveTimeoutSeconds", config.behavior.waveTimeoutSeconds);
         behavior.put("waveHoldDurationMs", (int) config.behavior.waveHoldDurationMs); // Cast long to int for JSON
@@ -520,6 +537,7 @@ public class FilterConfigManager {
         behavior.put("dismissalMemoryTimeout", config.behavior.dismissalMemoryTimeout);
         behavior.put("disableMediaFallback", config.behavior.disableMediaFallback);
         behavior.put("enableLegacyDucking", config.behavior.enableLegacyDucking);
+        behavior.put("dontUseSpeaker", config.behavior.dontUseSpeaker); // NEW
         json.put("behavior", behavior);
         
         // General settings
@@ -667,6 +685,11 @@ public class FilterConfigManager {
                 filtersImported++;
             }
 
+            if (filters.has("filterEmptyText")) {
+                editor.putBoolean(KEY_FILTER_EMPTY_TEXT, filters.getBoolean("filterEmptyText"));
+                filtersImported++;
+            }
+
             if (filters.has("mediaFilteringEnabled")) {
                 editor.putBoolean("media_filtering_enabled", filters.getBoolean("mediaFilteringEnabled"));
                 filtersImported++;
@@ -782,6 +805,11 @@ public class FilterConfigManager {
 
                 if (filters.has("tidySpeechRemoveEmojis")) {
                     mainEditor.putBoolean(KEY_TIDY_SPEECH_REMOVE_EMOJIS, filters.getBoolean("tidySpeechRemoveEmojis"));
+                    totalImported++;
+                }
+
+                if (filters.has("filterEmptyText")) {
+                    mainEditor.putBoolean(KEY_FILTER_EMPTY_TEXT, filters.getBoolean("filterEmptyText"));
                     totalImported++;
                 }
                 
@@ -1028,6 +1056,21 @@ public class FilterConfigManager {
                     mainEditor.putBoolean("notification_while_reading", behavior.getBoolean("notificationWhileReading"));
                     totalImported++;
                 }
+
+                if (behavior.has("skipRepeatedNotificationPrefix")) {
+                    mainEditor.putBoolean("skip_notification_repeated_prefix", behavior.getBoolean("skipRepeatedNotificationPrefix"));
+                    totalImported++;
+                }
+
+                if (behavior.has("prefixMemoryTimeoutSeconds")) {
+                    int timeout = behavior.getInt("prefixMemoryTimeoutSeconds");
+                    if (timeout < 5 || timeout > 500) {
+                        timeout = 60;
+                        InAppLogger.log("FilterConfig", "Invalid prefix memory timeout imported, reset to 60 seconds");
+                    }
+                    mainEditor.putInt("prefix_memory_timeout_seconds", timeout);
+                    totalImported++;
+                }
                 
                 if (behavior.has("waveToStopEnabled")) {
                     mainEditor.putBoolean("wave_to_stop_enabled", behavior.getBoolean("waveToStopEnabled"));
@@ -1123,6 +1166,11 @@ public class FilterConfigManager {
                 
                 if (behavior.has("enableLegacyDucking")) {
                     mainEditor.putBoolean("enable_legacy_ducking", behavior.getBoolean("enableLegacyDucking"));
+                    totalImported++;
+                }
+
+                if (behavior.has("dontUseSpeaker")) {
+                    mainEditor.putBoolean("dont_use_speaker", behavior.getBoolean("dontUseSpeaker"));
                     totalImported++;
                 }
             }

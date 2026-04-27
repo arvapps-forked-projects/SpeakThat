@@ -778,4 +778,17 @@
     <string name="rule_trigger_wifi_connected_android15">подключено к %1$s (Android 15+: любой WiFi)</string>
     <string name="behavior_ducking_fallback_description">Выберите, что делать, если аудиофокус на вашем устройстве не срабатывает</string>
     <string name="tts_engine_restart_confirm">Перезапуск</string>
+    <string name="rule_trigger_wired_headphones_connected">проводные наушники подключены</string>
+    <string name="rule_trigger_wired_headphones_disconnected">проводные наушники отключены</string>
+    <string name="background_location_disclosure_title">Фоновый доступ к местоположению</string>
+    <string name="background_location_disclosure_accept">Продолжить</string>
+    <string name="background_location_denied_title">Разрешение не предоставлено</string>
+    <string name="rule_trigger_wifi_connected_ssid">подключено к %1$s</string>
+    <string name="rule_trigger_wifi_disconnected_ssid">не подключено к %1$s</string>
+    <string name="rule_trigger_wifi_connected_no_bg_location">подключено к Wi-Fi (определение конкретной сети недоступно)</string>
+    <string name="rule_trigger_wifi_disconnected_no_bg_location">не подключено к Wi-Fi (определение конкретной сети недоступно)</string>
+    <string name="rule_exception_wifi_connected_no_bg_location">подключено к Wi-Fi (определение конкретной сети недоступно)</string>
+    <string name="rule_exception_wifi_disconnected_no_bg_location">не подключено к Wi-Fi (определение конкретной сети недоступно)</string>
+    <string name="rule_exception_wired_headphones_connected">проводные наушники подключены</string>
+    <string name="rule_exception_wired_headphones_disconnected">проводные наушники отключены</string>
 </resources>

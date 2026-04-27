@@ -529,6 +529,20 @@ object InAppLogger {
     }
     
     @JvmStatic
+    fun getLogsAsJsonArray(): org.json.JSONArray {
+        val jsonArray = org.json.JSONArray()
+        for (log in logs) {
+            val logObj = org.json.JSONObject()
+            logObj.put("timestamp", log.timestamp)
+            logObj.put("tag", log.tag)
+            logObj.put("message", log.message)
+            logObj.put("level", log.level)
+            jsonArray.put(logObj)
+        }
+        return jsonArray
+    }
+    
+    @JvmStatic
     fun clear() {
         logs.clear()
         log("Logger", "Logs cleared")

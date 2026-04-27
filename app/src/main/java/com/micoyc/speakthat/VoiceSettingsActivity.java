@@ -1111,6 +1111,7 @@ public class VoiceSettingsActivity extends AppCompatActivity implements TextToSp
         currentSpeechRate = sharedPreferences.getFloat(KEY_SPEECH_RATE, DEFAULT_SPEECH_RATE);
         int speechRateProgress = (int) ((currentSpeechRate - 0.1f) * 100);
         speechRateSeekBar.setProgress(speechRateProgress);
+        speechRateValue.setText(String.format("%.1fx", currentSpeechRate));
 
         // Load pitch (migrate legacy cent-scale / noisy floats once)
         float rawPitch = sharedPreferences.getFloat(KEY_PITCH, DEFAULT_PITCH);
@@ -1123,6 +1124,7 @@ public class VoiceSettingsActivity extends AppCompatActivity implements TextToSp
         }
         currentPitch = sanitizedPitch;
         pitchSeekBar.setProgress(pitchProgressFromStored(currentPitch));
+        pitchValue.setText(String.format("%.1fx", currentPitch));
 
         // Load TTS volume (clamp legacy values above 100%)
         currentTtsVolume = Math.min(1.0f, sharedPreferences.getFloat(KEY_TTS_VOLUME, DEFAULT_TTS_VOLUME));
@@ -1742,7 +1744,9 @@ public class VoiceSettingsActivity extends AppCompatActivity implements TextToSp
 
         // Reset UI
         speechRateSeekBar.setProgress((int) ((DEFAULT_SPEECH_RATE - 0.1f) * 100));
+        speechRateValue.setText(String.format("%.1fx", DEFAULT_SPEECH_RATE));
         pitchSeekBar.setProgress(pitchProgressFromStored(DEFAULT_PITCH));
+        pitchValue.setText(String.format("%.1fx", DEFAULT_PITCH));
         ttsVolumeSeekBar.setProgress((int) (DEFAULT_TTS_VOLUME * 100));
         ttsVolumeValue.setText(String.format("%.0f%%", DEFAULT_TTS_VOLUME * 100));
 

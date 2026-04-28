@@ -2556,6 +2556,7 @@ This permission is completely optional; SpeakThat! will still function without i
     <string name="support_log_message_bug">All current event logs ([number] entries) will be attached to the email. This is required for bug reports.</string>
     <string name="support_log_message_feature">No event logs will be sent in this email as they are not required for feature requests.</string>
     <string name="support_validation_warning">Please answer all required questions!</string>
+    <string name="support_select_email_app">Select your email app from the menu</string>
     <string name="support_send_via_email">Send via email</string>
 
     <!-- Email Subject Lines -->

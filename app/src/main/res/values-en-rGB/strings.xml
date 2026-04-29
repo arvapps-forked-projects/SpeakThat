@@ -2318,4 +2318,9 @@ OfficeNetwork</string>
     <string name="fallback_timer_complete">Timer or alarm complete</string>
     <string name="no_apps_found">No apps found</string>
     <string name="include_system_apps">Include System Apps</string>
+    <string name="behavior_skip_repeated_prefix_label">Skip repeated notification prefixes</string>
+    <string name="behavior_skip_repeated_prefix_description">When enabled, consecutive notifications with the same starting words (such as contact or group names) will drop the repeated prefix and only speak the changing text.</string>
+    <string name="behavior_skip_repeated_prefix_tip">Recommended for group chats</string>
+    <string name="filter_empty_text_title">Filter empty text</string>
+    <string name="filter_empty_text_description">Prevent SpeakThat from reading out notifications that contain no text</string>
 </resources>

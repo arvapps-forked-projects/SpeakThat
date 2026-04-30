@@ -2083,4 +2083,17 @@ Bloque=ignore totalement, Privée=annonce de façon privée
     <string name="fallback_timer_complete">Minuteur ou alarme écoulé</string>
     <string name="no_apps_found">Aucune application trouvée</string>
     <string name="include_system_apps">Inclure les application système</string>
+    <string name="behavior_skip_repeated_prefix_label">Sauter les préfixes de notification répétés</string>
+    <string name="behavior_skip_repeated_prefix_description">Quand activé, les notifications consécutives débutant par les mêmes mots (comme des noms de contact ou de groupe) supprimerons le préfixe répété et ne liront que le texte changeant.</string>
+    <string name="behavior_skip_repeated_prefix_tip">Recommandé pour les discussions de groupe</string>
+    <string name="filter_empty_text_title">Filtrer les textes vides</string>
+    <string name="filter_empty_text_description">Empêche SpeakThat de lire les notifications qui ne contiennent pas de texte</string>
+    <string name="behavior_skip_repeated_prefix_title">Sauter le préfixe répété</string>
+    <string name="behavior_prefix_memory_timeout_label">Durée de mémorisation de préfixe</string>
+    <string name="behavior_prefix_memory_timeout_value">%d secondes</string>
+    <string name="action_override_content_cap_title">Surcharge la limite de contenu</string>
+    <string name="action_override_content_cap_description">Active ou désactive la limite de contenu pour cette notification</string>
+    <string name="rule_action_override_content_cap">surcharge la limite de contenu</string>
+    <string name="rule_error_invalid_content_cap_mode">Mode de limitation du contenu invalide</string>
+    <string name="support_select_email_app">Sélectionnez votre application de courriel depuis le menu</string>
 </resources>

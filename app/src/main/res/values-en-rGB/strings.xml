@@ -2323,4 +2323,12 @@ OfficeNetwork</string>
     <string name="behavior_skip_repeated_prefix_tip">Recommended for group chats</string>
     <string name="filter_empty_text_title">Filter empty text</string>
     <string name="filter_empty_text_description">Prevent SpeakThat from reading out notifications that contain no text</string>
+    <string name="behavior_skip_repeated_prefix_title">Skip Repeated Prefix</string>
+    <string name="behavior_prefix_memory_timeout_label">Prefix Memory Timeout</string>
+    <string name="behavior_prefix_memory_timeout_value">%d seconds</string>
+    <string name="action_override_content_cap_title">Override Content Cap</string>
+    <string name="action_override_content_cap_description">Enable or disable content cap for this notification</string>
+    <string name="rule_action_override_content_cap">override content cap</string>
+    <string name="rule_error_invalid_content_cap_mode">Invalid content cap mode</string>
+    <string name="support_select_email_app">Select your email app from the menu</string>
 </resources>
